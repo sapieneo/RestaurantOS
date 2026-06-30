@@ -39,10 +39,12 @@ async function getMenuData(slug: string) {
     category: item.category ?? 'Genel',
     photo_url: item.photo_url,
     compliance_approved: item.compliance_approved ?? false,
-    allergen_ids: (item.item_allergens ?? []).map(
-      (a: { allergen_id: string; allergens: { icon_slug: string } | null }) =>
-        a.allergens?.icon_slug ?? a.allergen_id
-    ),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    allergen_ids: (item.item_allergens ?? []).map((a: any) => {
+      const al = a.allergens
+      const slug = Array.isArray(al) ? al[0]?.icon_slug : al?.icon_slug
+      return slug ?? a.allergen_id
+    }),
     nutrition: item.nutrition_values?.[0] ?? null,
   }))
 
