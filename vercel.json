@@ -1,0 +1,41 @@
+{
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "regions": ["fra1"],
+  "functions": {
+    "app/api/ocr/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "app/api/compliance/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "app/api/publish/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/auth/otp/send/route.ts": {
+      "maxDuration": 15
+    },
+    "app/api/auth/otp/verify/route.ts": {
+      "maxDuration": 15
+    }
+  },
+  "headers": [
+    {
+      "source": "/m/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, s-maxage=60, stale-while-revalidate=300" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    }
+  ]
+}

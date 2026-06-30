@@ -1,0 +1,138 @@
+{
+  "name": "RestaurantOS — WhatsApp Outreach",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 9 * * 1" }] }
+      },
+      "id": "trigger-weekly",
+      "name": "Her Pazartesi 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.RESTAURANTOS_API_URL }}/api/leads/pending",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "fetch-leads",
+      "name": "Bekleyen Lead'leri Çek",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.deadline_days_left }}",
+              "rightValue": 30,
+              "operator": { "type": "number", "operation": "lte" }
+            }
+          ]
+        }
+      },
+      "id": "filter-urgent",
+      "name": "30 Günden Az Kalan",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const { phone, name, business_name, deadline_days_left } = item.json;\n\n  // Türk telefon numarası normalize et\n  let normalized = String(phone).replace(/\\D/g, '');\n  if (normalized.startsWith('0')) normalized = '90' + normalized.slice(1);\n  if (!normalized.startsWith('90')) normalized = '90' + normalized;\n\n  const urgency = deadline_days_left <= 7\n    ? '⚠️ ACİL'\n    : deadline_days_left <= 14\n      ? '🔴 ÖNEMLİ'\n      : '⏰';\n\n  const message = `${urgency} Sayın ${name || 'İşletme Sahibi'},\\n\\n` +\n    `${business_name || 'İşletmeniz'} için 1 Temmuz 2026 gıda etiketleme yönetmeliği son tarihi yaklaşıyor.` +\n    ` *${deadline_days_left} gün kaldı.*\\n\\n` +\n    `Menünüzdeki 14 alerjen ve kalori bilgilerini RestaurantOS ile 15 dakikada tamamlayın.\\n\\n` +\n    `📲 Hemen başla: ${process.env.RESTAURANTOS_URL || 'https://restaurantos.app'}/studyo\\n\\n` +\n    `_Cevaplamak istemiyorsanız DURDU yazabilirsiniz._`;\n\n  results.push({\n    json: {\n      phone: normalized,\n      message,\n      business_name,\n      deadline_days_left,\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "format-messages",
+      "name": "Mesaj Formatla",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.netgsm.com.tr/sms/send/get?usercode={{ $env.NETGSM_USERCODE }}&password={{ $env.NETGSM_PASSWORD }}&gsmno={{ $json.phone }}&message={{ encodeURIComponent($json.message) }}&msgheader={{ $env.NETGSM_MSGHEADER }}&dil=TR",
+        "options": {}
+      },
+      "id": "send-sms",
+      "name": "SMS Gönder (Netgsm)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200],
+      "notes": "WhatsApp Business API bağlantısı yoksa Netgsm SMS fallback kullanılır"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.WHATSAPP_PHONE_ID }}/messages",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=",
+              "value": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.phone, type: 'text', text: { body: $json.message } }) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-whatsapp",
+      "name": "WhatsApp Gönder (Meta)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 420],
+      "notes": "Meta Business API — WHATSAPP_TOKEN ve WHATSAPP_PHONE_ID env var gerekli"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.RESTAURANTOS_API_URL }}/api/leads/mark-contacted",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{ $json.phone }}" },
+            { "name": "channel", "value": "whatsapp" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-contacted",
+      "name": "CRM'de Güncelle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Her Pazartesi 09:00": { "main": [[{ "node": "Bekleyen Lead'leri Çek", "type": "main", "index": 0 }]] },
+    "Bekleyen Lead'leri Çek": { "main": [[{ "node": "30 Günden Az Kalan", "type": "main", "index": 0 }]] },
+    "30 Günden Az Kalan": { "main": [[{ "node": "Mesaj Formatla", "type": "main", "index": 0 }]] },
+    "Mesaj Formatla": {
+      "main": [[
+        { "node": "SMS Gönder (Netgsm)", "type": "main", "index": 0 },
+        { "node": "WhatsApp Gönder (Meta)", "type": "main", "index": 0 }
+      ]]
+    },
+    "SMS Gönder (Netgsm)": { "main": [[{ "node": "CRM'de Güncelle", "type": "main", "index": 0 }]] },
+    "WhatsApp Gönder (Meta)": { "main": [[{ "node": "CRM'de Güncelle", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "meta": { "templateId": "restaurantos-whatsapp-outreach-v1" },
+  "pinData": {}
+}
