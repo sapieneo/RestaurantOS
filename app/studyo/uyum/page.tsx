@@ -1,167 +1,156 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { useDropzone } from 'react-dropzone'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { ArrowLeft, ArrowRight, Loader2, ShieldCheck, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Upload, FileImage, AlertCircle, ArrowRight, Loader2, X, ImagePlus } from 'lucide-react'
-import type { OcrResult, OcrMenuItem } from '@/types'
+import type { StudioSession, EditedMenuItem, ComplianceAnalysis } from '@/types'
+import ComplianceCard from '@/components/studio/ComplianceCard'
+import type { ComplianceCardData } from '@/components/studio/ComplianceCard'
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-const MAX_FILES = 10
+const STEPS = ['Yükle', 'Düzelt', 'Uyum', 'Bilgiler', 'Önizle', 'Yayınla']
 
-interface UploadedFile {
-  file: File
-  preview: string | null
-  id: string
-}
-
-export default function StudyoUploadPage() {
+export default function UyumPage() {
   const router = useRouter()
-  const [files, setFiles] = useState<UploadedFile[]>([])
-  const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState({ current: 0, total: 0 })
+  const [session, setSession] = useState<StudioSession | null>(null)
+  const [items, setItems] = useState<EditedMenuItem[]>([])
+  const [complianceData, setComplianceData] = useState<Record<string, ComplianceAnalysis>>({})
+  const [step, setStep] = useState<'analyzing' | 'review' | 'signing' | 'done'>('analyzing')
+  const [savedItems, setSavedItems] = useState<Record<string, ComplianceCardData>>({})
+  const [legalSigned, setLegalSigned] = useState(false)
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const newFiles: UploadedFile[] = []
-    for (const f of acceptedFiles) {
-      if (f.size > MAX_FILE_SIZE) {
-        toast.error(`${f.name}: 10MB'dan büyük, atlandı.`)
-        continue
-      }
-      newFiles.push({
-        file: f,
-        preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
-        id: crypto.randomUUID(),
-      })
+  useEffect(() => {
+    const raw = localStorage.getItem('ros_session')
+    if (!raw) { router.push('/studyo'); return }
+    const parsed: StudioSession = JSON.parse(raw)
+    if (!parsed.editedItems?.length) { router.push('/studyo/duzelt'); return }
+    setSession(parsed)
+    setItems(parsed.editedItems)
+
+    if (parsed.complianceResults && Object.keys(parsed.complianceResults).length > 0) {
+      setComplianceData(parsed.complianceResults)
+      setStep('review')
+    } else {
+      runComplianceAnalysis(parsed.editedItems)
     }
-
-    setFiles((prev) => {
-      const combined = [...prev, ...newFiles].slice(0, MAX_FILES)
-      if (prev.length + newFiles.length > MAX_FILES) {
-        toast.error(`En fazla ${MAX_FILES} dosya yükleyebilirsiniz.`)
-      }
-      return combined
-    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const removeFile = useCallback((id: string) => {
-    setFiles((prev) => {
-      const removed = prev.find((f) => f.id === id)
-      if (removed?.preview) URL.revokeObjectURL(removed.preview)
-      return prev.filter((f) => f.id !== id)
-    })
-  }, [])
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/png': ['.png'],
-      'image/webp': ['.webp'],
-      'application/pdf': ['.pdf'],
-    },
-    multiple: true,
-    maxFiles: MAX_FILES,
-    maxSize: MAX_FILE_SIZE,
-  })
-
-  async function handleAnalyze() {
-    if (files.length === 0) return
-    setLoading(true)
-    setProgress({ current: 0, total: files.length })
-
+  async function runComplianceAnalysis(itemsToAnalyze: EditedMenuItem[]) {
+    setStep('analyzing')
     try {
-      const allItems: OcrMenuItem[] = []
-      let anyLowConfidence = false
-      let totalMs = 0
-
-      // Her dosyayı sırayla OCR'a gönder
-      for (let i = 0; i < files.length; i++) {
-        setProgress({ current: i + 1, total: files.length })
-
-        const f = files[i].file
-        const arrayBuffer = await f.arrayBuffer()
-        const base64 = Buffer.from(arrayBuffer).toString('base64')
-
-        const response = await fetch('/api/ocr', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: base64,
-            mimeType: f.type,
-          }),
-        })
-
-        const result = await response.json()
-
-        if (!result.success) {
-          toast.error(`${f.name}: ${result.error ?? 'Okunamadı.'}`)
-          continue
-        }
-
-        const ocrResult: OcrResult = result.data
-        allItems.push(...ocrResult.items)
-        if (ocrResult.low_confidence_detected) anyLowConfidence = true
-        totalMs += ocrResult.processing_time_ms
-      }
-
-      if (allItems.length === 0) {
-        toast.error('Hiçbir dosyada ürün bulunamadı. Daha net fotoğraflar deneyin.')
+      const res = await fetch('/api/compliance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: itemsToAnalyze.map((i) => ({
+            id: i.id,
+            name: i.name,
+            description: i.description,
+            category: i.category,
+          })),
+        }),
+      })
+      const result = await res.json()
+      if (!result.success) {
+        toast.error(result.error ?? 'Uyum analizi başarısız.')
+        setStep('review')
         return
       }
-
-      // Birleşik sonucu session'a kaydet
-      const mergedResult: OcrResult = {
-        items: allItems,
-        raw_text: '',
-        low_confidence_detected: anyLowConfidence,
-        processing_time_ms: totalMs,
-      }
-
-      const sessionToken = crypto.randomUUID()
-      localStorage.setItem('ros_session', JSON.stringify({
-        sessionToken,
-        step: 2,
-        ocrResult: mergedResult,
-      }))
-
-      if (anyLowConfidence) {
-        toast('Bazı sayfalarda okunamayan bölgeler var. Bir sonraki adımda düzeltebilirsiniz.', {
-          icon: '⚠️',
-          duration: 5000,
-        })
-      } else {
-        toast.success(`${files.length} sayfa okundu — ${allItems.length} ürün tanındı!`)
-      }
-
-      router.push('/studyo/duzelt')
+      setComplianceData(result.data)
+      setStep('review')
     } catch {
-      toast.error('Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.')
-    } finally {
-      setLoading(false)
-      setProgress({ current: 0, total: 0 })
+      toast.error('Analiz sırasında hata oluştu.')
+      setStep('review')
     }
+  }
+
+  function handleCardSave(itemId: string, data: ComplianceCardData) {
+    setSavedItems((prev) => ({ ...prev, [itemId]: data }))
+    toast.success('Bilgiler kaydedildi.')
+  }
+
+  const confirmedCount = Object.values(savedItems).filter((s) => s.confirmed).length
+  const allConfirmed = confirmedCount === items.length
+
+  function handleProceedToSign() {
+    // Tüm ürünler onaylı olması zorunlu DEĞİL — uyarıyla geçebilir
+    setStep('signing')
+  }
+
+  function handleFinalSign() {
+    if (!legalSigned) {
+      toast.error('Lütfen onay kutusunu işaretleyin.')
+      return
+    }
+
+    if (!localStorage.getItem('ros_user_id')) {
+      localStorage.setItem('ros_user_id', 'guest-' + Math.random().toString(36).slice(2, 10))
+      localStorage.setItem('ros_access_token', 'guest')
+    }
+
+    const now = new Date().toISOString()
+    const updatedItems = items.map((item) => {
+      const saved = savedItems[item.id]
+      const comp = complianceData[item.id]
+      return {
+        ...item,
+        compliance_approved: saved?.confirmed ?? false,
+        compliance_approved_at: saved?.confirmed ? now : undefined,
+        allergen_ids: saved?.allergen_slugs ?? comp?.allergen_ids ?? [],
+        ingredients: saved?.ingredients ?? comp?.ingredients ?? [],
+        meat_type: saved?.meat_type ?? comp?.meat_type ?? null,
+        contains_alcohol: saved?.contains_alcohol ?? comp?.contains_alcohol ?? null,
+        contains_pork: saved?.contains_pork ?? comp?.contains_pork ?? null,
+        nutrition: {
+          kcal: saved?.kcal ?? comp?.kcal ?? null,
+          protein_g: saved?.protein_g ?? comp?.protein_g ?? null,
+          fat_g: saved?.fat_g ?? comp?.fat_g ?? null,
+          carb_g: saved?.carb_g ?? comp?.carb_g ?? null,
+          portion_g: saved?.portion_g ?? comp?.portion_g ?? null,
+          portion_desc: comp?.portion_desc ?? '',
+          ai_suggested: !saved?.confirmed,
+          confirmed_at: saved?.confirmed ? now : null,
+        },
+      }
+    })
+
+    const updated: StudioSession = {
+      ...session!,
+      step: 4,
+      editedItems: updatedItems,
+      complianceResults: complianceData,
+    }
+    localStorage.setItem('ros_session', JSON.stringify(updated))
+    setStep('done')
+  }
+
+  function handleNext() {
+    router.push('/studyo/isletme')
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-[#0D1B2A] border-b border-[#1E3A52]">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div>
-            <span className="font-display font-bold text-white text-xl">Restaurant<span className="text-teal-400">OS</span></span>
-            <span className="ml-3 text-xs text-slate-500 font-mono">Menü Stüdyosu</span>
-          </div>
+      <header className="bg-[#0D1B2A] border-b border-[#1E3A52] sticky top-0 z-50">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <span className="font-display font-bold text-white text-xl">
+            Restaurant<span className="text-teal-400">OS</span>
+            <span className="ml-3 text-xs text-slate-500 font-mono font-normal">Menü Stüdyosu</span>
+          </span>
           <div className="flex items-center gap-2 text-xs">
-            {['Yükle', 'Düzelt', 'Uyum', 'Bilgiler', 'Önizle', 'Yayınla'].map((label, i) => (
-              <div key={label} className="flex items-center gap-2">
+            {STEPS.map((label, i) => (
+              <div key={label} className="flex items-center gap-1.5">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                  i === 0 ? 'bg-teal-500 text-white' : 'bg-[#1E3A52] text-slate-500'
+                  i < 2 ? 'bg-teal-600 text-white' :
+                  i === 2 ? 'bg-teal-500 text-white ring-2 ring-teal-400/30' :
+                  'bg-[#1E3A52] text-slate-500'
                 }`}>
-                  {i + 1}
+                  {i < 2 ? '✓' : i + 1}
                 </div>
-                <span className={i === 0 ? 'text-white' : 'text-slate-600'}>{label}</span>
+                <span className={`hidden sm:block ${i === 2 ? 'text-white' : i < 2 ? 'text-teal-400' : 'text-slate-600'}`}>
+                  {label}
+                </span>
                 {i < 5 && <span className="text-slate-700">›</span>}
               </div>
             ))}
@@ -169,130 +158,177 @@ export default function StudyoUploadPage() {
         </div>
       </header>
 
-      {/* Content */}
-      <main className="max-w-2xl mx-auto px-6 py-16">
-        <div className="text-center mb-12">
-          <h1 className="font-display text-3xl font-bold text-[#0D1B2A] mb-3">
-            Menünüzü yükleyin
-          </h1>
-          <p className="text-slate-500 text-lg">
-            AI menünüzü okuyup tüm ürünleri otomatik çıkaracak.
-            <br />Birden fazla sayfa varsa hepsini seçebilirsiniz (en fazla {MAX_FILES}).
-          </p>
-        </div>
+      <main className="max-w-4xl mx-auto px-6 py-8">
 
-        {/* Dropzone */}
-        <div
-          {...getRootProps()}
-          className={`
-            border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer transition-all
-            ${isDragActive
-              ? 'border-teal-500 bg-teal-50'
-              : files.length > 0
-                ? 'border-teal-400 bg-teal-50/50'
-                : 'border-gray-300 bg-white hover:border-teal-400 hover:bg-gray-50'
-            }
-          `}
-        >
-          <input {...getInputProps()} />
-
-          {files.length === 0 ? (
-            <div className="space-y-4">
-              <Upload className={`w-12 h-12 mx-auto transition-colors ${isDragActive ? 'text-teal-500' : 'text-slate-300'}`} />
-              <div>
-                <p className="font-semibold text-slate-700 text-lg">
-                  {isDragActive ? 'Bırakın!' : 'Menü fotoğraflarını sürükleyin'}
-                </p>
-                <p className="text-slate-400 text-sm mt-1">ya da tıklayarak seçin · birden fazla dosya seçebilirsiniz</p>
+        {/* Analiz yükleniyor */}
+        {step === 'analyzing' && (
+          <div className="flex flex-col items-center justify-center py-32 gap-6">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-full bg-teal-50 flex items-center justify-center">
+                <ShieldCheck className="w-10 h-10 text-teal-500" />
               </div>
-              <p className="text-xs text-slate-400">JPG, PNG, PDF · Her dosya maks 10MB · En fazla {MAX_FILES} dosya</p>
+              <div className="absolute inset-0 rounded-full border-4 border-teal-200 border-t-teal-500 animate-spin" />
             </div>
-          ) : (
-            <div className="space-y-2">
-              <ImagePlus className="w-8 h-8 text-teal-400 mx-auto" />
-              <p className="text-sm text-teal-600 font-medium">
-                Daha fazla eklemek için tıklayın veya sürükleyin
+            <div className="text-center">
+              <h2 className="font-display text-xl font-bold text-gray-900 mb-2">Uyum analizi yapılıyor...</h2>
+              <p className="text-gray-500 text-sm">
+                AI {items.length} ürün için alerjen, kalori, içindekiler ve et türü analizi yapıyor.
               </p>
             </div>
-          )}
-        </div>
-
-        {/* Yüklenen dosyalar */}
-        {files.length > 0 && (
-          <div className="mt-6 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-            {files.map((uf, idx) => (
-              <div key={uf.id} className="relative group aspect-square rounded-xl border border-gray-200 bg-white overflow-hidden">
-                {uf.preview ? (
-                  <img src={uf.preview} alt={`Sayfa ${idx + 1}`} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-teal-500">
-                    <FileImage className="w-8 h-8" />
-                    <span className="text-xs">PDF</span>
-                  </div>
-                )}
-                {/* Sıra numarası */}
-                <div className="absolute bottom-1 left-1 bg-black/60 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                  {idx + 1}
-                </div>
-                {/* Sil butonu */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); removeFile(uf.id) }}
-                  className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
+            <div className="flex gap-1">
+              {[0,1,2].map((i) => (
+                <div key={i} className="w-2 h-2 rounded-full bg-teal-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Uyarı */}
-        <div className="mt-4 flex gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-          <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-700">
-            En iyi sonuç için menüyü düz, iyi ışıklı bir ortamda fotoğraflayın.
-            Birden fazla sayfa varsa hepsini aynı anda yükleyebilirsiniz —
-            AI tüm sayfaları okuyup ürünleri birleştirecek.
-          </p>
-        </div>
-
-        {/* Analiz butonu */}
-        {files.length > 0 && (
-          <div className="mt-8 text-center">
-            <button
-              onClick={handleAnalyze}
-              disabled={loading}
-              className="btn-primary text-base px-8 py-4 rounded-2xl shadow-lg shadow-teal-200"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  {progress.total > 1
-                    ? `Sayfa ${progress.current}/${progress.total} okunuyor...`
-                    : 'Menü okunuyor...'}
-                </>
-              ) : (
-                <>
-                  {files.length > 1
-                    ? `${files.length} Sayfayı Analiz Et`
-                    : 'Menüyü Analiz Et'}
-                  <ArrowRight className="w-5 h-5" />
-                </>
-              )}
-            </button>
-            {loading && progress.total > 1 && (
-              <div className="mt-3 max-w-xs mx-auto">
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-teal-500 rounded-full transition-all duration-500"
-                    style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                  />
-                </div>
-                <p className="mt-1 text-xs text-slate-400">
-                  {progress.current}/{progress.total} sayfa tamamlandı
+        {/* Ürün kartları — ComplianceCard */}
+        {step === 'review' && (
+          <>
+            <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+              <div>
+                <h1 className="font-display text-2xl font-bold text-gray-900">Uyum Kontrolü</h1>
+                <p className="text-gray-500 mt-1 text-sm">
+                  AI her ürün için içindekiler, alerjen, et türü ve kalori önerdi. İnceleyin, düzeltin ve onaylayın.
                 </p>
               </div>
-            )}
+              <div className="flex items-center gap-3">
+                <div className={`px-4 py-2 rounded-xl font-bold text-sm ${
+                  allConfirmed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                  confirmedCount > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                  'bg-red-50 text-red-700 border border-red-200'
+                }`}>
+                  {confirmedCount}/{items.length} onaylı
+                </div>
+              </div>
+            </div>
+
+            {/* Renk lejantı */}
+            <div className="flex flex-wrap gap-4 mb-4 text-xs text-gray-500">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-500" /> Eksik — bilgi girilmedi</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500" /> AI önerisi — onay bekliyor</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-500" /> İşletme onayladı</span>
+            </div>
+
+            <div className="space-y-3">
+              {items.map((item, idx) => (
+                <ComplianceCard
+                  key={item.id}
+                  itemId={item.id}
+                  itemName={item.name}
+                  itemPrice={item.price}
+                  itemCategory={item.category}
+                  compliance={complianceData[item.id] ?? null}
+                  onSave={handleCardSave}
+                  defaultOpen={idx === 0}
+                />
+              ))}
+            </div>
+
+            <div className="mt-8 flex items-center justify-between pt-6 border-t border-gray-200">
+              <button onClick={() => router.push('/studyo/duzelt')} className="btn-secondary">
+                <ArrowLeft className="w-4 h-4" /> Geri
+              </button>
+              <button onClick={handleProceedToSign} className="btn-primary">
+                Devam Et ({confirmedCount}/{items.length} onaylı)
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Hukuki onay */}
+        {step === 'signing' && (
+          <div className="max-w-2xl mx-auto py-12">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-teal-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <ShieldCheck className="w-8 h-8 text-teal-500" />
+              </div>
+              <h2 className="font-display text-2xl font-bold text-gray-900 mb-2">Bilgileri onaylayın</h2>
+              <p className="text-gray-500 text-sm">
+                Yönetmelik gereği, menüdeki bilgilerin doğruluğunu işletme olarak onaylamanız gerekiyor.
+              </p>
+            </div>
+
+            <div className="card space-y-6">
+              <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Toplam ürün</span>
+                  <span className="font-semibold">{items.length}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Bilgileri onaylanan</span>
+                  <span className="font-semibold text-emerald-600">{confirmedCount}</span>
+                </div>
+                {confirmedCount < items.length && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Eksik / onaysız</span>
+                    <span className="font-semibold text-amber-600">{items.length - confirmedCount}</span>
+                  </div>
+                )}
+              </div>
+
+              {confirmedCount < items.length && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+                  ⚠️ {items.length - confirmedCount} ürün için uyum bilgileri eksik veya onaylanmamış.
+                  Bu ürünler menüde içerik/alerjen bilgisi olmadan yayınlanır.
+                  Yönetmelik gereği doğruluk sorumluluğu işletmeye aittir.
+                </div>
+              )}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800 leading-relaxed">
+                Menü bilgilerinin (alerjenler, kalori, içerikler, et türü beyanı) doğruluğunu
+                teyit ediyorum. AI tarafından önerilen bilgileri inceledim ve uygun gördüğüm
+                değişiklikleri yaptım. Hatalı bilgi içermesi durumunda yasal sorumluluğun
+                işletmeme ait olduğunu kabul ediyorum. Bu onay,{' '}
+                <strong>{new Date().toLocaleDateString('tr-TR')}</strong> tarihinde kayıt altına alınacaktır.
+              </div>
+
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={legalSigned}
+                  onChange={(e) => setLegalSigned(e.target.checked)}
+                  className="mt-0.5 w-5 h-5 rounded border-gray-300 text-teal-500 focus:ring-teal-400 cursor-pointer"
+                />
+                <span className="text-sm text-gray-700 group-hover:text-gray-900 transition-colors">
+                  Yukarıdaki bilgilerin doğruluğunu onaylıyorum. Hatalı bilgi sonucunda
+                  doğabilecek yasal yükümlülüğün işletmeme ait olduğunu kabul ediyorum.
+                </span>
+              </label>
+
+              <div className="flex gap-3">
+                <button onClick={() => setStep('review')} className="btn-secondary flex-1 justify-center">
+                  <ArrowLeft className="w-4 h-4" /> Geri Dön
+                </button>
+                <button
+                  onClick={handleFinalSign}
+                  disabled={!legalSigned}
+                  className="btn-primary flex-1 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ShieldCheck className="w-4 h-4" /> Onayla ve İlerle
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tamamlandı */}
+        {step === 'done' && (
+          <div className="flex flex-col items-center justify-center py-24 gap-6">
+            <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center">
+              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+            </div>
+            <div className="text-center">
+              <h2 className="font-display text-2xl font-bold text-gray-900 mb-2">Uyum kontrolü tamamlandı!</h2>
+              <p className="text-gray-500">
+                {confirmedCount} ürün onaylandı. Sıradaki adımda işletme bilgilerinizi girin.
+              </p>
+            </div>
+            <button onClick={handleNext} className="btn-primary text-base px-8 py-4 rounded-2xl">
+              İşletme Bilgilerine Geç <ArrowRight className="w-5 h-5" />
+            </button>
           </div>
         )}
       </main>
