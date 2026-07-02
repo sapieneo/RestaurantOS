@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/server'
-import type { ComplianceAnalysis } from '@/types'
+import type { ComplianceAnalysis, MeatType } from '@/types'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -25,10 +25,13 @@ const RequestSchema = z.object({
 const ComplianceItemSchema = z.object({
   item_id: z.string(),
   allergen_slugs: z.array(z.string()),
+  ingredients: z.array(z.string()),
+  meat_type: z.enum(['dana', 'kuzu', 'tavuk', 'hindi', 'balik', 'karisik', 'yok']).nullable(),
   kcal: z.number().nullable(),
   protein_g: z.number().nullable(),
   fat_g: z.number().nullable(),
   carb_g: z.number().nullable(),
+  portion_g: z.number().nullable(),
   portion_desc: z.string(),
   contains_alcohol: z.boolean().nullable(),
   contains_pork: z.boolean().nullable(),
@@ -47,21 +50,26 @@ async function analyzeChunk(
     .map((item) => `ID: ${item.id}\nName: ${item.name}\nDescription: ${item.description ?? 'none'}\nCategory: ${item.category}`)
     .join('\n\n')
 
-  const prompt = `You are a food safety expert. Analyze the following restaurant menu items for Turkish food labeling compliance.
+  const prompt = `You are a food safety expert analyzing Turkish restaurant menu items for the new "Şeffaf Menü" regulation (1 July 2026).
 
-ALLERGENS (only from this list):
+ALLERGENS (use ONLY these slugs):
 ${allergenList}
+
+MEAT TYPES (use ONLY these values): dana, kuzu, tavuk, hindi, balik, karisik, yok
 
 Return a JSON array (no wrapper object) with one entry per item:
 [
   {
     "item_id": "<same ID as given>",
     "allergen_slugs": ["<slug>", ...],
+    "ingredients": ["<ingredient in Turkish>", ...],
+    "meat_type": "<dana|kuzu|tavuk|hindi|balik|karisik|yok|null>",
     "kcal": <number or null>,
     "protein_g": <number or null>,
     "fat_g": <number or null>,
     "carb_g": <number or null>,
-    "portion_desc": "<e.g. 1 serving (300g)>",
+    "portion_g": <number or null>,
+    "portion_desc": "<e.g. 1 porsiyon (300g)>",
     "contains_alcohol": <true/false/null>,
     "contains_pork": <true/false/null>,
     "confidence": "<high|medium|low>",
@@ -69,10 +77,13 @@ Return a JSON array (no wrapper object) with one entry per item:
   }
 ]
 
-Rules:
+CRITICAL RULES:
+- "ingredients": list main ingredients in plain Turkish (e.g. "kuzu kıyma", "pul biber", "lavaş"). Keep it practical, 3-8 items.
+- "meat_type": if the dish contains meat, specify which animal. Use "karisik" for mixed meats. Use "yok" for vegetarian/vegan dishes. Use null ONLY if you genuinely cannot determine from the name.
+- "portion_g": estimate portion weight in grams. If you cannot make a reasonable estimate, use null. DO NOT GUESS wildly — null is better than a wrong number.
+- Use null for ANY value you are not reasonably confident about. A missing field (null) is ALWAYS better than a wrong value — wrong allergen info can cause anaphylaxis.
 - Use ONLY the slug values from the allergen list above
 - Return ONLY the JSON array, no explanation, no markdown
-- Use null for unknown numeric values
 
 Items:
 ${itemsText}`
@@ -118,10 +129,13 @@ ${itemsText}`
     chunkResults[item.data.item_id] = {
       menu_item_name: items.find((i) => i.id === item.data.item_id)?.name ?? '',
       allergen_ids: item.data.allergen_slugs.filter((slug) => validSlugs.has(slug)),
+      ingredients: item.data.ingredients,
+      meat_type: item.data.meat_type as MeatType | null,
       kcal: item.data.kcal,
       protein_g: item.data.protein_g,
       fat_g: item.data.fat_g,
       carb_g: item.data.carb_g,
+      portion_g: item.data.portion_g,
       portion_desc: item.data.portion_desc,
       contains_alcohol: item.data.contains_alcohol,
       contains_pork: item.data.contains_pork,
