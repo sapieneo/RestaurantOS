@@ -89,8 +89,14 @@ export function DraftEditor({
           <h1 className="mt-3 text-xl font-semibold">Menün kaydedildi</h1>
           <p className="mt-2 text-stone-600">
             {save.itemCount} ürün içe aktarıldı. Sıradaki adım: alerjen &amp; kalori
-            onayı ve yayınlama (M2-M3&apos;te geliyor).
+            onayı — misafir menüsünde yalnız onayladığın bilgi görünür.
           </p>
+          <a
+            href={`/studyo/${ingestionId}/uyum`}
+            className="mt-5 inline-block rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white shadow transition hover:bg-brand-700"
+          >
+            Alerjenleri onayla →
+          </a>
         </div>
       </main>
     );

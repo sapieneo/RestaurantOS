@@ -2,7 +2,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'fs';
 
 const db = new PGlite();
-const sql = readFileSync('new URL("../supabase/migrations/0001_init.sql", import.meta.url)', 'utf8');
+const sql = readFileSync(new URL('../supabase/migrations/0001_init.sql', import.meta.url), 'utf8');
+const sql3 = readFileSync(new URL('../supabase/migrations/0003_compliance.sql', import.meta.url), 'utf8');
 
 // --- Supabase ortam stub'u ---
 await db.exec(`
@@ -16,6 +17,7 @@ await db.exec(`
 
 // --- Migration ---
 try { await db.exec(sql); } catch (e) { console.error("MIGRATION HATA:", e.message); process.exit(1); }
+try { await db.exec(sql3); } catch (e) { console.error("MIGRATION 0003 HATA:", e.message); process.exit(1); }
 console.log('MIGRATION OK');
 
 // Supabase varsayilan grant'leri
@@ -94,4 +96,55 @@ console.log('Yabanci org icine yazma engelli: ' + (blocked ? 'OK' : 'FAIL'));
 
 await db.exec(`reset role;`);
 console.log('Alerjen seed: ' + ((await db.query(`select count(*)::int as c from public.allergens`)).rows[0].c) + ' satır');
+
+// ============================================================================
+// M2 — Uyum motoru onay akışı
+// ============================================================================
+// Sahibi ol
+await db.exec(`reset role; set role authenticated; select set_config('request.jwt.claim.sub', '${uid}', false);`);
+
+// Onay öncesi rozet sinyali kapalı olmalı
+let r = (await db.query(`select allergens_confirmed from public.items where id='${item.id}'`)).rows[0];
+console.log('M2 onay öncesi rozet kapalı: ' + (r.allergens_confirmed === false ? 'OK' : 'FAIL'));
+
+// confirm: eggs+milk onayla, kalori onayla
+await db.exec(`select public.confirm_item_compliance('${item.id}', array['eggs','milk'], true);`);
+
+r = (await db.query(`select state, confirmed_by from public.item_allergens where item_id='${item.id}' order by allergen_id`)).rows;
+const allConfirmed = r.length === 2 && r.every(x => x.state === 'confirmed' && x.confirmed_by === uid);
+console.log('M2 alerjenler confirmed + confirmed_by damgalı: ' + (allConfirmed ? 'OK' : 'FAIL — ' + JSON.stringify(r)));
+
+r = (await db.query(`select allergens_confirmed from public.items where id='${item.id}'`)).rows[0];
+console.log('M2 rozet sinyali açıldı: ' + (r.allergens_confirmed === true ? 'OK' : 'FAIL'));
+
+r = (await db.query(`select allergen_review, calories_review, reviewed_by from public.item_compliance where item_id='${item.id}'`)).rows[0];
+console.log('M2 item_compliance onay+kalori+damga: ' +
+  ((r && r.allergen_review === 'confirmed' && r.calories_review === 'confirmed' && r.reviewed_by === uid) ? 'OK' : 'FAIL — ' + JSON.stringify(r)));
+
+// confirm sette olmayan alerjeni siler: sadece 'gluten' bırak
+await db.exec(`select public.confirm_item_compliance('${item.id}', array['gluten'], false);`);
+r = (await db.query(`select allergen_id from public.item_allergens where item_id='${item.id}'`)).rows;
+console.log('M2 set dışı alerjen kaldırıldı (yalnız gluten): ' + (r.length === 1 && r[0].allergen_id === 1 ? 'OK' : 'FAIL — ' + JSON.stringify(r)));
+
+// Misafir rozet sinyalini görür (yayınlı item)
+await db.exec(`reset role; set role anon; select set_config('request.jwt.claim.sub', '', false);`);
+r = (await db.query(`select allergens_confirmed from public.items where id='${item.id}'`)).rows[0];
+console.log('ANON rozet sinyalini görür: ' + (r && r.allergens_confirmed === true ? 'OK' : 'FAIL'));
+
+// Yabancı kullanıcı confirm çağıramaz (yetki hatası)
+await db.exec(`reset role; set role authenticated; select set_config('request.jwt.claim.sub', '${uid2}', false);`);
+let denied = false;
+try { await db.exec(`select public.confirm_item_compliance('${item.id}', array['eggs'], false);`); }
+catch { denied = true; }
+console.log('M2 yabancı confirm engelli: ' + (denied ? 'OK' : 'FAIL'));
+
+// Sahibi onayı geri alır
+await db.exec(`reset role; set role authenticated; select set_config('request.jwt.claim.sub', '${uid}', false);`);
+await db.exec(`select public.unconfirm_item_compliance('${item.id}');`);
+r = (await db.query(`select allergens_confirmed from public.items where id='${item.id}'`)).rows[0];
+const st = (await db.query(`select state from public.item_allergens where item_id='${item.id}'`)).rows;
+console.log('M2 unconfirm rozet kapatır + ai_suggested: ' +
+  ((r.allergens_confirmed === false && st.every(x => x.state === 'ai_suggested')) ? 'OK' : 'FAIL'));
+
+await db.exec(`reset role;`);
 console.log('TÜM TESTLER TAMAM');
