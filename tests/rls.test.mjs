@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 const db = new PGlite();
 const sql = readFileSync(new URL('../supabase/migrations/0001_init.sql', import.meta.url), 'utf8');
 const sql3 = readFileSync(new URL('../supabase/migrations/0003_compliance.sql', import.meta.url), 'utf8');
+const sql4 = readFileSync(new URL('../supabase/migrations/0004_menu_enrichment.sql', import.meta.url), 'utf8');
 
 // --- Supabase ortam stub'u ---
 await db.exec(`
@@ -18,6 +19,7 @@ await db.exec(`
 // --- Migration ---
 try { await db.exec(sql); } catch (e) { console.error("MIGRATION HATA:", e.message); process.exit(1); }
 try { await db.exec(sql3); } catch (e) { console.error("MIGRATION 0003 HATA:", e.message); process.exit(1); }
+try { await db.exec(sql4); } catch (e) { console.error("MIGRATION 0004 HATA:", e.message); process.exit(1); }
 console.log('MIGRATION OK');
 
 // Supabase varsayilan grant'leri
@@ -107,8 +109,10 @@ await db.exec(`reset role; set role authenticated; select set_config('request.jw
 let r = (await db.query(`select allergens_confirmed from public.items where id='${item.id}'`)).rows[0];
 console.log('M2 onay öncesi rozet kapalı: ' + (r.allergens_confirmed === false ? 'OK' : 'FAIL'));
 
-// confirm: eggs+milk onayla, kalori onayla
-await db.exec(`select public.confirm_item_compliance('${item.id}', array['eggs','milk'], true);`);
+// confirm: eggs+milk alerjen + vegetarian diyet + kalori onayla
+await db.exec(`select public.confirm_item_compliance('${item.id}', array['eggs','milk'], array['vegetarian']::text[], true);`);
+r = (await db.query(`select t.code from public.item_dietary d join public.dietary_tags t on t.id=d.tag_id where d.item_id='${item.id}' and d.state='confirmed'`)).rows;
+console.log('M2 diyet rozeti confirmed: ' + (r.length === 1 && r[0].code === 'vegetarian' ? 'OK' : 'FAIL — ' + JSON.stringify(r)));
 
 r = (await db.query(`select state, confirmed_by from public.item_allergens where item_id='${item.id}' order by allergen_id`)).rows;
 const allConfirmed = r.length === 2 && r.every(x => x.state === 'confirmed' && x.confirmed_by === uid);
@@ -122,7 +126,7 @@ console.log('M2 item_compliance onay+kalori+damga: ' +
   ((r && r.allergen_review === 'confirmed' && r.calories_review === 'confirmed' && r.reviewed_by === uid) ? 'OK' : 'FAIL — ' + JSON.stringify(r)));
 
 // confirm sette olmayan alerjeni siler: sadece 'gluten' bırak
-await db.exec(`select public.confirm_item_compliance('${item.id}', array['gluten'], false);`);
+await db.exec(`select public.confirm_item_compliance('${item.id}', array['gluten'], array[]::text[], false);`);
 r = (await db.query(`select allergen_id from public.item_allergens where item_id='${item.id}'`)).rows;
 console.log('M2 set dışı alerjen kaldırıldı (yalnız gluten): ' + (r.length === 1 && r[0].allergen_id === 1 ? 'OK' : 'FAIL — ' + JSON.stringify(r)));
 
