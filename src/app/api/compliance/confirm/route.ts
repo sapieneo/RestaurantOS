@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
-import { ALLERGEN_CODES } from '@/lib/schemas/menu';
+import { ALLERGEN_CODES, DIETARY_CODES } from '@/lib/schemas/menu';
 
 export const runtime = 'nodejs';
 
@@ -9,6 +9,8 @@ const bodySchema = z.object({
   itemId: z.string().uuid(),
   /** Onaylanan nihai alerjen seti. Boş = "alerjensiz" beyanı. */
   allergenCodes: z.array(z.enum(ALLERGEN_CODES)).default([]),
+  /** Onaylanan diyet rozetleri (Helal/Alkolsüz/Vegan/Vejetaryen). */
+  dietaryCodes: z.array(z.enum(DIETARY_CODES)).default([]),
   caloriesOk: z.boolean().default(false),
   /** true → onayı geri al (düzenlemeye dön). */
   revert: z.boolean().default(false),
@@ -32,13 +34,14 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Geçersiz istek.' }, { status: 400 });
   }
-  const { itemId, allergenCodes, caloriesOk, revert } = parsed.data;
+  const { itemId, allergenCodes, dietaryCodes, caloriesOk, revert } = parsed.data;
 
   const { error } = revert
     ? await supabase.rpc('unconfirm_item_compliance', { p_item: itemId })
     : await supabase.rpc('confirm_item_compliance', {
         p_item: itemId,
         p_allergen_codes: allergenCodes,
+        p_dietary_codes: dietaryCodes,
         p_calories_ok: caloriesOk,
       });
 
