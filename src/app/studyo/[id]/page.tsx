@@ -13,7 +13,7 @@ export default async function ReviewPage({ params }: { params: { id: string } })
   const supabase = createClient();
   const { data: ingestion } = await supabase
     .from('menu_ingestions')
-    .select('id, status, raw_result, error_message, venue_id')
+    .select('id, status, raw_result, error_message, venue_id, org_id')
     .eq('id', params.id)
     .maybeSingle();
 
@@ -64,6 +64,8 @@ export default async function ReviewPage({ params }: { params: { id: string } })
   return (
     <DraftEditor
       ingestionId={ingestion.id}
+      venueId={ingestion.venue_id}
+      orgId={ingestion.org_id}
       initialDraft={raw.data.extracted}
       alreadyApproved={ingestion.status === 'approved'}
     />

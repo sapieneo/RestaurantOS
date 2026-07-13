@@ -1,7 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ExtractedMenu } from '@/lib/schemas/menu';
+import { createClient } from '@/lib/supabase/client';
+
+const ADD_ACCEPTED = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 const ALLERGEN_LABELS: Record<string, string> = {
   gluten: 'Glüten', crustaceans: 'Kabuklular', eggs: 'Yumurta', fish: 'Balık',
@@ -19,15 +22,61 @@ type SaveState = { name: 'idle' } | { name: 'saving' } | { name: 'done'; itemCou
  */
 export function DraftEditor({
   ingestionId,
+  venueId,
+  orgId,
   initialDraft,
   alreadyApproved,
 }: {
   ingestionId: string;
+  venueId: string;
+  orgId: string;
   initialDraft: ExtractedMenu;
   alreadyApproved: boolean;
 }) {
   const [draft, setDraft] = useState<ExtractedMenu>(initialDraft);
   const [save, setSave] = useState<SaveState>({ name: 'idle' });
+  const [adding, setAdding] = useState(false);
+  const addRef = useRef<HTMLInputElement>(null);
+
+  async function handleAddPages(files: File[]) {
+    if (files.length === 0) return;
+    setAdding(true);
+    setSave({ name: 'idle' });
+    try {
+      const supabase = createClient();
+      const pages: { storagePath: string; mimeType: string; sourceType: 'image' | 'pdf' }[] = [];
+      for (const file of files) {
+        if (!ADD_ACCEPTED.includes(file.type)) throw new Error('JPG, PNG, WebP veya PDF ekleyin.');
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+        const path = `${orgId}/${crypto.randomUUID()}.${ext}`;
+        const { error } = await supabase.storage
+          .from('menu-uploads')
+          .upload(path, file, { contentType: file.type });
+        if (error) throw new Error('Yükleme başarısız. Bağlantınızı kontrol edin.');
+        pages.push({
+          storagePath: path,
+          mimeType: file.type,
+          sourceType: file.type === 'application/pdf' ? 'pdf' : 'image',
+        });
+      }
+      const res = await fetch('/api/menu/extract-pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueId, pages }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'Sayfa okunamadı.');
+      setDraft((d) => ({
+        ...d,
+        categories: [...d.categories, ...body.categories],
+        warnings: [...d.warnings, ...(body.warnings ?? [])],
+      }));
+    } catch (err) {
+      setSave({ name: 'error', message: err instanceof Error ? err.message : 'Sayfa eklenemedi.' });
+    } finally {
+      setAdding(false);
+    }
+  }
 
   const itemCount = draft.categories.reduce((n, c) => n + c.items.length, 0);
 
@@ -123,14 +172,43 @@ export function DraftEditor({
             {draft.currency_guess ? ` · para birimi tahmini: ${draft.currency_guess}` : ''}
           </p>
         </div>
-        <button
-          onClick={approve}
-          disabled={save.name === 'saving' || itemCount === 0}
-          className="rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white shadow transition hover:bg-brand-700 disabled:opacity-50"
-        >
-          {save.name === 'saving' ? 'Kaydediliyor…' : alreadyApproved ? 'Yeniden Kaydet' : 'Onayla ve Kaydet'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => addRef.current?.click()}
+            disabled={adding || save.name === 'saving'}
+            className="rounded-xl border border-stone-300 px-4 py-3 font-semibold text-stone-700 transition hover:bg-stone-50 disabled:opacity-50"
+          >
+            {adding ? 'Okunuyor…' : '+ Sayfa ekle'}
+          </button>
+          <button
+            onClick={approve}
+            disabled={save.name === 'saving' || adding || itemCount === 0}
+            className="rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white shadow transition hover:bg-brand-700 disabled:opacity-50"
+          >
+            {save.name === 'saving' ? 'Kaydediliyor…' : alreadyApproved ? 'Yeniden Kaydet' : 'Onayla ve Kaydet'}
+          </button>
+          <input
+            ref={addRef}
+            type="file"
+            accept={ADD_ACCEPTED.join(',')}
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) void handleAddPages(files);
+              e.target.value = '';
+            }}
+          />
+        </div>
       </header>
+
+      {adding && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-600" />
+          Yeni sayfalar okunuyor ve menüye ekleniyor…
+        </div>
+      )}
 
       {save.name === 'error' && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
