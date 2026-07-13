@@ -6,6 +6,7 @@ const sql = readFileSync(new URL('../supabase/migrations/0001_init.sql', import.
 const sql3 = readFileSync(new URL('../supabase/migrations/0003_compliance.sql', import.meta.url), 'utf8');
 const sql4 = readFileSync(new URL('../supabase/migrations/0004_menu_enrichment.sql', import.meta.url), 'utf8');
 const sql5 = readFileSync(new URL('../supabase/migrations/0005_fix_confirm_ambiguity.sql', import.meta.url), 'utf8');
+const sql6 = readFileSync(new URL('../supabase/migrations/0006_multipage_menu.sql', import.meta.url), 'utf8');
 
 // --- Supabase ortam stub'u ---
 await db.exec(`
@@ -22,6 +23,7 @@ try { await db.exec(sql); } catch (e) { console.error("MIGRATION HATA:", e.messa
 try { await db.exec(sql3); } catch (e) { console.error("MIGRATION 0003 HATA:", e.message); process.exit(1); }
 try { await db.exec(sql4); } catch (e) { console.error("MIGRATION 0004 HATA:", e.message); process.exit(1); }
 try { await db.exec(sql5); } catch (e) { console.error("MIGRATION 0005 HATA:", e.message); process.exit(1); }
+try { await db.exec(sql6); } catch (e) { console.error("MIGRATION 0006 HATA:", e.message); process.exit(1); }
 console.log('MIGRATION OK');
 
 // Supabase varsayilan grant'leri
