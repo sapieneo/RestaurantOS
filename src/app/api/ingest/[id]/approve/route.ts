@@ -69,6 +69,10 @@ export async function POST(
   }
   const allergenIdByCode = new Map(allergenRows.map((a) => [a.code, a.id]));
 
+  // Diyet etiketi kod → id haritası
+  const { data: dietaryRows } = await supabase.from('dietary_tags').select('id, code');
+  const dietaryIdByCode = new Map((dietaryRows ?? []).map((d) => [d.code, d.id]));
+
   // 1) Menü
   const { data: menu, error: menuErr } = await supabase
     .from('menus')
@@ -103,6 +107,7 @@ export async function POST(
         org_id: ingestion.org_id,
         name: it.name,
         description: it.description ?? null,
+        ingredients: it.ingredients ?? null,
         price: it.price ?? null,
         sort_order: ii,
         calories_kcal: it.calories_kcal ?? null,
@@ -139,6 +144,24 @@ export async function POST(
     if (allergenInserts.length > 0) {
       const { error } = await supabase.from('item_allergens').insert(allergenInserts);
       if (error) throw new Error('Alerjen önerileri yazılamadı.');
+    }
+
+    // 4b) Diyet önerileri (ai_suggested)
+    const dietaryInserts = itemIds.flatMap((itemId, idx) =>
+      (flatDraftItems[idx].dietary ?? [])
+        .filter((d) => dietaryIdByCode.has(d.code))
+        .map((d) => ({
+          item_id: itemId,
+          org_id: ingestion.org_id,
+          tag_id: dietaryIdByCode.get(d.code)!,
+          state: 'ai_suggested' as const,
+          confidence: d.confidence,
+          source: 'ai' as const,
+        }))
+    );
+    if (dietaryInserts.length > 0) {
+      const { error } = await supabase.from('item_dietary').insert(dietaryInserts);
+      if (error) throw new Error('Diyet önerileri yazılamadı.');
     }
 
     const complianceInserts = itemIds.map((itemId) => ({

@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { extractedMenuSchema, ALLERGEN_CODES, type ExtractedMenu } from '@/lib/schemas/menu';
+import { extractedMenuSchema, ALLERGEN_CODES, DIETARY_CODES, type ExtractedMenu } from '@/lib/schemas/menu';
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5';
 
@@ -16,7 +16,16 @@ Sana bir menünün fotoğrafı veya PDF'i verilecek. Görevin:
    uydurma. Bu tahminler işletme sahibi tarafından tek tek onaylanacak.
 4. Tipik porsiyon için kalori tahmini yapabiliyorsan calories_kcal doldur,
    yapamıyorsan null bırak.
-5. Menünün dilini (language_guess, BCP 47) ve para birimini
+5. Ürünün olası içindekilerini (ingredients) ad ve açıklamadan yola çıkarak
+   kısa, virgülle ayrılmış bir liste olarak yaz (ör. "kıyma, soğan, domates,
+   baharat"). Emin değilsen null bırak; uydurma.
+6. Uygunsa diyet etiketleri öner (dietary). Yalnız şu kodları kullan:
+   ${DIETARY_CODES.join(', ')}. Kurallar: alcohol_free = içeriğinde alkol
+   olmayan içecek/ürün; vegan = hiç hayvansal ürün yok; vegetarian = et/balık
+   yok (süt/yumurta olabilir); halal = domuz ve alkol içermeyen, bariz helal
+   ürün (emin değilsen düşük skor veya hiç önerme). Her öneriye 0-1 güven skoru
+   ver. Bu etiketler de işletme tarafından onaylanacak; şüphede kal, uydurma.
+7. Menünün dilini (language_guess, BCP 47) ve para birimini
    (currency_guess, ISO 4217) tahmin et.
 
 Sonucu MUTLAKA submit_menu aracıyla gönder.`;
@@ -47,6 +56,7 @@ const SUBMIT_MENU_TOOL: Anthropic.Messages.Tool = {
                 properties: {
                   name: { type: 'string' },
                   description: { type: ['string', 'null'] },
+                  ingredients: { type: ['string', 'null'] },
                   price: { type: ['number', 'null'] },
                   calories_kcal: { type: ['integer', 'null'] },
                   allergens: {
@@ -56,6 +66,17 @@ const SUBMIT_MENU_TOOL: Anthropic.Messages.Tool = {
                       required: ['code', 'confidence'],
                       properties: {
                         code: { type: 'string', enum: [...ALLERGEN_CODES] },
+                        confidence: { type: 'number' },
+                      },
+                    },
+                  },
+                  dietary: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: ['code', 'confidence'],
+                      properties: {
+                        code: { type: 'string', enum: [...DIETARY_CODES] },
                         confidence: { type: 'number' },
                       },
                     },

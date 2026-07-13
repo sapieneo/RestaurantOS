@@ -12,12 +12,22 @@ export const allergenSuggestionSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+/** 0004_menu_enrichment.sql'deki dietary_tags.code seed'iyle birebir. */
+export const DIETARY_CODES = ['halal', 'alcohol_free', 'vegan', 'vegetarian'] as const;
+
+export const dietarySuggestionSchema = z.object({
+  code: z.enum(DIETARY_CODES),
+  confidence: z.number().min(0).max(1),
+});
+
 export const extractedItemSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).nullish(),
+  ingredients: z.string().max(2000).nullish(),
   price: z.number().min(0).nullish(),
   calories_kcal: z.number().int().min(0).max(20000).nullish(),
   allergens: z.array(allergenSuggestionSchema).default([]),
+  dietary: z.array(dietarySuggestionSchema).default([]),
 });
 
 export const extractedCategorySchema = z.object({

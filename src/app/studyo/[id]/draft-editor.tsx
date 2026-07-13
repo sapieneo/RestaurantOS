@@ -60,7 +60,7 @@ export function DraftEditor({
     setDraft((d) => ({
       ...d,
       categories: d.categories.map((c, i) =>
-        i !== ci ? c : { ...c, items: [...c.items, { name: 'Yeni ürün', description: null, price: null, calories_kcal: null, allergens: [] }] }
+        i !== ci ? c : { ...c, items: [...c.items, { name: 'Yeni ürün', description: null, ingredients: null, price: null, calories_kcal: null, allergens: [], dietary: [] }] }
       ),
     }));
   }
