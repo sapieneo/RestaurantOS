@@ -100,36 +100,45 @@ export class MenuExtractionError extends Error {
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
-/**
- * Menü dosyasından (görsel/PDF) yapılandırılmış menü çıkarır.
- * Çıktı zod ile doğrulanır — doğrulanamayan yanıt hata sayılır,
- * yarım/bozuk veri asla veritabanına inmez.
- */
-export async function extractMenuFromFile(
-  fileBuffer: Buffer,
-  mimeType: string
-): Promise<{ extracted: ExtractedMenu; model: string }> {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const base64 = fileBuffer.toString('base64');
+export type MenuPage = { buffer: Buffer; mimeType: string };
 
-  let fileBlock: Anthropic.Messages.ContentBlockParam;
-  if (mimeType === 'application/pdf') {
-    fileBlock = {
-      type: 'document',
-      source: { type: 'base64', media_type: 'application/pdf', data: base64 },
-    };
-  } else if (IMAGE_TYPES.has(mimeType)) {
-    fileBlock = {
+function toBlock(page: MenuPage): Anthropic.Messages.ContentBlockParam {
+  const base64 = page.buffer.toString('base64');
+  if (page.mimeType === 'application/pdf') {
+    return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } };
+  }
+  if (IMAGE_TYPES.has(page.mimeType)) {
+    return {
       type: 'image',
       source: {
         type: 'base64',
-        media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+        media_type: page.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
         data: base64,
       },
     };
-  } else {
-    throw new MenuExtractionError(`Desteklenmeyen dosya türü: ${mimeType}`);
   }
+  throw new MenuExtractionError(`Desteklenmeyen dosya türü: ${page.mimeType}`);
+}
+
+/**
+ * Bir veya daha fazla menü sayfasından (görsel/PDF) TEK yapılandırılmış menü
+ * çıkarır. Tüm sayfalar aynı Claude çağrısında birleştirilir; kategoriler
+ * sayfa sırasına göre toplanır. Çıktı zod ile doğrulanır.
+ */
+export async function extractMenuFromFiles(
+  pages: MenuPage[]
+): Promise<{ extracted: ExtractedMenu; model: string }> {
+  if (pages.length === 0) throw new MenuExtractionError('Hiç sayfa verilmedi.');
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+  const content: Anthropic.Messages.ContentBlockParam[] = pages.map(toBlock);
+  content.push({
+    type: 'text',
+    text:
+      pages.length > 1
+        ? `Bunlar aynı menünün ${pages.length} sayfası. Hepsini TEK menü olarak, sayfa sırasına göre eksiksiz çıkar ve submit_menu ile gönder. Sayfalar arasında kategori tekrarlanıyorsa birleştir.`
+        : 'Bu menüyü eksiksiz çıkar ve submit_menu ile gönder.',
+  });
 
   let response: Anthropic.Messages.Message;
   try {
@@ -139,15 +148,7 @@ export async function extractMenuFromFile(
       system: SYSTEM_PROMPT,
       tools: [SUBMIT_MENU_TOOL],
       tool_choice: { type: 'tool', name: 'submit_menu' },
-      messages: [
-        {
-          role: 'user',
-          content: [
-            fileBlock,
-            { type: 'text', text: 'Bu menüyü eksiksiz çıkar ve submit_menu ile gönder.' },
-          ],
-        },
-      ],
+      messages: [{ role: 'user', content }],
     });
   } catch (err) {
     throw new MenuExtractionError('AI servisi yanıt vermedi. Lütfen tekrar deneyin.', err);

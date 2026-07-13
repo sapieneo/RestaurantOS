@@ -2,24 +2,29 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
-import { extractMenuFromFile, MenuExtractionError } from '@/lib/ai/extract';
+import { extractMenuFromFiles, MenuExtractionError, type MenuPage } from '@/lib/ai/extract';
 import type { RawResult } from '@/lib/schemas/menu';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // AI çıkarma 60 sn'yi bulabilir
 
-const bodySchema = z.object({
-  venueId: z.string().uuid(),
+const pageSchema = z.object({
   storagePath: z.string().min(3), // {org_id}/{uuid}.{ext}
   mimeType: z.string(),
   sourceType: z.enum(['image', 'pdf']),
 });
 
+const bodySchema = z.object({
+  venueId: z.string().uuid(),
+  /** Aynı menünün bir veya daha fazla sayfası (tek çıkarmada birleştirilir). */
+  pages: z.array(pageSchema).min(1).max(10),
+});
+
 /**
  * POST /api/ingest
- * Yüklenmiş dosya için içe aktarma başlatır ve AI çıkarmayı çalıştırır.
- * Durum makinesi: uploaded → processing → review | failed.
- * İdempotent: aynı venue + aynı dosya (input_hash) için mevcut sonucu döner.
+ * Yüklenmiş bir veya daha fazla sayfa için içe aktarma başlatır ve AI çıkarmayı
+ * çalıştırır. Durum makinesi: uploaded → processing → review | failed.
+ * İdempotent: aynı venue + aynı sayfa seti (input_hash) için mevcut sonucu döner.
  */
 export async function POST(request: NextRequest) {
   const supabase = createClient();
@@ -34,9 +39,8 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Geçersiz istek.' }, { status: 400 });
   }
-  const { venueId, storagePath, mimeType, sourceType } = parsed.data;
+  const { venueId, pages } = parsed.data;
 
-  // Kullanıcı bu venue'nun org'una üye mi? (RLS ile örtük doğrulama)
   const { data: venue } = await supabase
     .from('venues')
     .select('id, org_id')
@@ -45,23 +49,27 @@ export async function POST(request: NextRequest) {
   if (!venue) {
     return NextResponse.json({ error: 'Mekân bulunamadı.' }, { status: 404 });
   }
-  // Yol org klasörüyle başlamalı — başka org'un dosyası işlenemez.
-  if (!storagePath.startsWith(`${venue.org_id}/`)) {
+  // Her sayfa org klasörüyle başlamalı — başka org'un dosyası işlenemez.
+  if (pages.some((p) => !p.storagePath.startsWith(`${venue.org_id}/`))) {
     return NextResponse.json({ error: 'Geçersiz dosya yolu.' }, { status: 403 });
   }
 
-  // Dosyayı indir (admin — kullanıcı yetkisi yukarıda doğrulandı)
+  // Tüm sayfaları indir (admin — kullanıcı yetkisi yukarıda doğrulandı)
   const admin = createAdminClient();
-  const { data: blob, error: dlErr } = await admin.storage
-    .from('menu-uploads')
-    .download(storagePath);
-  if (dlErr || !blob) {
-    return NextResponse.json({ error: 'Dosya okunamadı. Lütfen yeniden yükleyin.' }, { status: 400 });
+  const menuPages: MenuPage[] = [];
+  const hash = createHash('sha256');
+  for (const p of pages) {
+    const { data: blob, error: dlErr } = await admin.storage.from('menu-uploads').download(p.storagePath);
+    if (dlErr || !blob) {
+      return NextResponse.json({ error: 'Dosya okunamadı. Lütfen yeniden yükleyin.' }, { status: 400 });
+    }
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    hash.update(buffer);
+    menuPages.push({ buffer, mimeType: p.mimeType });
   }
-  const buffer = Buffer.from(await blob.arrayBuffer());
-  const inputHash = createHash('sha256').update(buffer).digest('hex');
+  const inputHash = hash.digest('hex');
 
-  // İdempotency: aynı dosya bu venue için zaten işlendiyse onu döndür
+  // İdempotency: aynı sayfa seti bu venue için zaten işlendiyse onu döndür
   const { data: existing } = await supabase
     .from('menu_ingestions')
     .select('id, status')
@@ -74,15 +82,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: existing.id, status: existing.status, deduplicated: true });
   }
 
-  // İçe aktarma kaydı aç (kullanıcı JWT — RLS: editor şartı)
   const { data: ingestion, error: insErr } = await supabase
     .from('menu_ingestions')
     .insert({
       venue_id: venueId,
       org_id: venue.org_id,
       uploaded_by: user.id,
-      source_type: sourceType,
-      storage_path: storagePath,
+      source_type: pages.some((p) => p.sourceType === 'pdf') ? 'pdf' : 'image',
+      storage_path: pages[0].storagePath,
       input_hash: inputHash,
       status: 'processing',
     })
@@ -92,9 +99,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'İçe aktarma başlatılamadı.' }, { status: 500 });
   }
 
-  // AI çıkarma
   try {
-    const { extracted, model } = await extractMenuFromFile(buffer, mimeType);
+    const { extracted, model } = await extractMenuFromFiles(menuPages);
     const rawResult: RawResult = {
       extracted,
       created_menu_id: null,
@@ -108,9 +114,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: ingestion.id, status: 'review' });
   } catch (err) {
     const message =
-      err instanceof MenuExtractionError
-        ? err.message
-        : 'Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.';
+      err instanceof MenuExtractionError ? err.message : 'Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.';
     await supabase
       .from('menu_ingestions')
       .update({ status: 'failed', error_message: message })

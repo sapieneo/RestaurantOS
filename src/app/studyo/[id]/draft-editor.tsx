@@ -91,12 +91,17 @@ export function DraftEditor({
             {save.itemCount} ürün içe aktarıldı. Sıradaki adım: alerjen &amp; kalori
             onayı — misafir menüsünde yalnız onayladığın bilgi görünür.
           </p>
-          <a
-            href={`/studyo/${ingestionId}/uyum`}
-            className="mt-5 inline-block rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white shadow transition hover:bg-brand-700"
-          >
-            Alerjenleri onayla →
-          </a>
+          <div className="mt-5 flex flex-col items-center gap-3">
+            <a
+              href={`/studyo/${ingestionId}/uyum`}
+              className="inline-block rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white shadow transition hover:bg-brand-700"
+            >
+              Alerjenleri onayla →
+            </a>
+            <a href="/studyo" className="text-sm font-medium text-stone-500 hover:text-stone-700">
+              + Başka sayfa ekle
+            </a>
+          </div>
         </div>
       </main>
     );

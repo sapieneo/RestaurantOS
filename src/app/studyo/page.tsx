@@ -51,41 +51,49 @@ export default function StudyoPage() {
     })();
   }, []);
 
-  const handleFile = useCallback(
-    async (file: File) => {
+  const handleFiles = useCallback(
+    async (files: File[]) => {
       if (phase.name !== 'hazir') return;
       const { orgId, venueId } = phase;
 
-      if (!ACCEPTED.includes(file.type)) {
-        setPhase({ name: 'hata', message: 'JPG, PNG, WebP veya PDF yükleyin.', orgId, venueId });
+      if (files.length > 10) {
+        setPhase({ name: 'hata', message: 'Tek seferde en çok 10 sayfa yükleyebilirsin.', orgId, venueId });
         return;
       }
-      if (file.size > MAX_BYTES) {
-        setPhase({ name: 'hata', message: 'Dosya 20 MB sınırını aşıyor.', orgId, venueId });
-        return;
+      for (const file of files) {
+        if (!ACCEPTED.includes(file.type)) {
+          setPhase({ name: 'hata', message: 'JPG, PNG, WebP veya PDF yükleyin.', orgId, venueId });
+          return;
+        }
+        if (file.size > MAX_BYTES) {
+          setPhase({ name: 'hata', message: `"${file.name}" 20 MB sınırını aşıyor.`, orgId, venueId });
+          return;
+        }
       }
 
       setPhase({ name: 'yukleniyor', orgId, venueId });
       try {
         const supabase = createClient();
-        const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-        const path = `${orgId}/${crypto.randomUUID()}.${ext}`;
-
-        const { error: upErr } = await supabase.storage
-          .from('menu-uploads')
-          .upload(path, file, { contentType: file.type });
-        if (upErr) throw new Error('Yükleme başarısız. Bağlantınızı kontrol edin.');
+        const pages: { storagePath: string; mimeType: string; sourceType: 'image' | 'pdf' }[] = [];
+        for (const file of files) {
+          const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+          const path = `${orgId}/${crypto.randomUUID()}.${ext}`;
+          const { error: upErr } = await supabase.storage
+            .from('menu-uploads')
+            .upload(path, file, { contentType: file.type });
+          if (upErr) throw new Error('Yükleme başarısız. Bağlantınızı kontrol edin.');
+          pages.push({
+            storagePath: path,
+            mimeType: file.type,
+            sourceType: file.type === 'application/pdf' ? 'pdf' : 'image',
+          });
+        }
 
         setPhase({ name: 'cikariliyor', orgId, venueId });
         const res = await fetch('/api/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            venueId,
-            storagePath: path,
-            mimeType: file.type,
-            sourceType: file.type === 'application/pdf' ? 'pdf' : 'image',
-          }),
+          body: JSON.stringify({ venueId, pages }),
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? 'Menü çıkarılamadı.');
@@ -127,8 +135,8 @@ export default function StudyoPage() {
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          const file = e.dataTransfer.files?.[0];
-          if (file && !busy) void handleFile(file);
+          const files = Array.from(e.dataTransfer.files ?? []);
+          if (files.length && !busy) void handleFiles(files);
         }}
         className={`flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-8 text-center transition
           ${dragOver ? 'border-brand-600 bg-brand-50' : 'border-stone-300 bg-white hover:border-brand-500'}
@@ -138,8 +146,10 @@ export default function StudyoPage() {
         {phase.name === 'hazir' && (
           <>
             <span className="text-4xl">📸</span>
-            <p className="font-medium">Fotoğraf ya da PDF&apos;i buraya bırak</p>
-            <p className="text-sm text-stone-500">veya tıklayıp seç · JPG, PNG, WebP, PDF · en çok 20 MB</p>
+            <p className="font-medium">Fotoğraf ya da PDF&apos;leri buraya bırak</p>
+            <p className="text-sm text-stone-500">
+              veya tıklayıp seç · birden çok sayfa seçebilirsin · JPG, PNG, WebP, PDF · her biri en çok 20 MB
+            </p>
           </>
         )}
         {phase.name === 'yukleniyor' && <Progress label="Dosya yükleniyor…" />}
@@ -180,10 +190,11 @@ export default function StudyoPage() {
         ref={inputRef}
         type="file"
         accept={ACCEPTED.join(',')}
+        multiple
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void handleFile(file);
+          const files = Array.from(e.target.files ?? []);
+          if (files.length) void handleFiles(files);
           e.target.value = '';
         }}
       />
