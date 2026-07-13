@@ -2,19 +2,27 @@
 
 import { useMemo, useState } from 'react';
 import { ALLERGENS, type AllergenCode } from '@/lib/allergens';
-import { ALLERGEN_CODES } from '@/lib/schemas/menu';
+import { DIETARY, type DietaryCode } from '@/lib/dietary';
+import { ALLERGEN_CODES, DIETARY_CODES } from '@/lib/schemas/menu';
 
 export type ReviewItem = {
   id: string;
   name: string;
   categoryName: string;
   calories: number | null;
+  ingredients: string | null;
   allergenCodes: string[];
+  dietaryCodes: string[];
   confirmed: boolean;
   caloriesConfirmed: boolean;
 };
 
-type ItemState = ReviewItem & { selected: Set<string>; saving: boolean; error: string | null };
+type ItemState = ReviewItem & {
+  selected: Set<string>;
+  selectedDietary: Set<string>;
+  saving: boolean;
+  error: string | null;
+};
 
 /** Mevzuat takvimi — Tarım ve Orman Bakanlığı, menüde 14 alerjen + kalori. */
 const REG_MILESTONES = [
@@ -37,6 +45,7 @@ export function ComplianceReviewer({
     initial.map((it) => ({
       ...it,
       selected: new Set(it.allergenCodes),
+      selectedDietary: new Set(it.dietaryCodes),
       saving: false,
       error: null,
     }))
@@ -60,6 +69,14 @@ export function ComplianceReviewer({
     });
   }
 
+  function toggleDietary(id: string, code: string) {
+    patch(id, (s) => {
+      const next = new Set(s.selectedDietary);
+      next.has(code) ? next.delete(code) : next.add(code);
+      return { ...s, selectedDietary: next };
+    });
+  }
+
   async function confirm(item: ItemState, caloriesOk: boolean) {
     patch(item.id, (s) => ({ ...s, saving: true, error: null }));
     try {
@@ -69,6 +86,7 @@ export function ComplianceReviewer({
         body: JSON.stringify({
           itemId: item.id,
           allergenCodes: Array.from(item.selected),
+          dietaryCodes: Array.from(item.selectedDietary),
           caloriesOk,
         }),
       });
@@ -197,10 +215,13 @@ export function ComplianceReviewer({
               {catItems.map((item: ItemState) => (
                 <li key={item.id} className="py-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium">{item.name}</p>
                       {item.calories != null && (
                         <p className="text-xs text-stone-500">{item.calories} kcal</p>
+                      )}
+                      {item.ingredients && (
+                        <p className="mt-0.5 text-xs text-stone-400">İçindekiler: {item.ingredients}</p>
                       )}
                     </div>
                     {item.confirmed ? (
@@ -237,6 +258,28 @@ export function ComplianceReviewer({
                   <p className="mt-1.5 text-xs text-stone-400">
                     Seçili = üründe var. Hiçbiri seçili değilse &quot;alerjensiz&quot; olarak onaylanır.
                   </p>
+
+                  <div className="mt-3">
+                    <p className="text-xs font-medium text-stone-500">Diyet rozetleri</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {DIETARY_CODES.map((code) => {
+                        const on = item.selectedDietary.has(code);
+                        return (
+                          <button
+                            key={code}
+                            type="button"
+                            onClick={() => toggleDietary(item.id, code)}
+                            disabled={item.saving}
+                            className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                              on ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'
+                            }`}
+                          >
+                            {DIETARY[code as DietaryCode].emoji} {DIETARY[code as DietaryCode].tr}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
                   {item.error && (
                     <p className="mt-2 text-xs text-red-600">{item.error}</p>

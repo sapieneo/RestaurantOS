@@ -61,11 +61,18 @@ export default async function ReviewPage({ params }: { params: { id: string } })
     );
   }
 
+  const { data: venue } = await supabase
+    .from('venues')
+    .select('currency_code')
+    .eq('id', ingestion.venue_id)
+    .maybeSingle();
+
   return (
     <DraftEditor
       ingestionId={ingestion.id}
       venueId={ingestion.venue_id}
       orgId={ingestion.org_id}
+      initialCurrency={venue?.currency_code ?? raw.data.extracted.currency_guess ?? 'TRY'}
       initialDraft={raw.data.extracted}
       alreadyApproved={ingestion.status === 'approved'}
     />

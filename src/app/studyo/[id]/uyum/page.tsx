@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { rawResultSchema } from '@/lib/schemas/menu';
 import { CODE_BY_ID } from '@/lib/allergens';
+import { DIETARY_CODE_BY_ID } from '@/lib/dietary';
 import { ComplianceReviewer, type ReviewItem } from './compliance-reviewer';
 
 export const dynamic = 'force-dynamic';
@@ -57,8 +58,9 @@ export default async function CompliancePage({ params }: { params: { id: string 
     ? await supabase
         .from('items')
         .select(
-          'id, name, category_id, calories_kcal, allergens_confirmed, sort_order, ' +
-            'item_allergens(allergen_id, state), item_compliance(allergen_review, calories_review, reviewed_at)'
+          'id, name, category_id, calories_kcal, ingredients, allergens_confirmed, sort_order, ' +
+            'item_allergens(allergen_id, state), item_dietary(tag_id, state), ' +
+            'item_compliance(allergen_review, calories_review, reviewed_at)'
         )
         .in('category_id', catIds)
         .order('sort_order')
@@ -69,6 +71,7 @@ export default async function CompliancePage({ params }: { params: { id: string 
   const rows = (itemRows ?? []) as unknown as Record<string, unknown>[];
   const items: ReviewItem[] = rows.map((it) => {
     const algRows = (it.item_allergens as { allergen_id: number; state: string }[]) ?? [];
+    const dietRows = (it.item_dietary as { tag_id: number; state: string }[]) ?? [];
     const compArr = it.item_compliance as
       | { allergen_review: string; calories_review: string; reviewed_at: string | null }[]
       | { allergen_review: string; calories_review: string; reviewed_at: string | null }
@@ -79,8 +82,12 @@ export default async function CompliancePage({ params }: { params: { id: string 
       name: it.name as string,
       categoryName: catName.get(it.category_id as string) ?? '—',
       calories: (it.calories_kcal as number | null) ?? null,
+      ingredients: (it.ingredients as string | null) ?? null,
       allergenCodes: algRows
         .map((r) => CODE_BY_ID[r.allergen_id])
+        .filter(Boolean) as string[],
+      dietaryCodes: dietRows
+        .map((r) => DIETARY_CODE_BY_ID[r.tag_id])
         .filter(Boolean) as string[],
       confirmed: Boolean(it.allergens_confirmed),
       caloriesConfirmed: comp?.calories_review === 'confirmed',

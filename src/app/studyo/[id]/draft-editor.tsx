@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import type { ExtractedMenu } from '@/lib/schemas/menu';
 import { createClient } from '@/lib/supabase/client';
+import { CURRENCIES, currencySymbol } from '@/lib/currency';
 
 const ADD_ACCEPTED = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
@@ -24,16 +25,19 @@ export function DraftEditor({
   ingestionId,
   venueId,
   orgId,
+  initialCurrency,
   initialDraft,
   alreadyApproved,
 }: {
   ingestionId: string;
   venueId: string;
   orgId: string;
+  initialCurrency: string;
   initialDraft: ExtractedMenu;
   alreadyApproved: boolean;
 }) {
   const [draft, setDraft] = useState<ExtractedMenu>(initialDraft);
+  const [currency, setCurrency] = useState(initialCurrency);
   const [save, setSave] = useState<SaveState>({ name: 'idle' });
   const [adding, setAdding] = useState(false);
   const addRef = useRef<HTMLInputElement>(null);
@@ -120,7 +124,7 @@ export function DraftEditor({
       const res = await fetch(`/api/ingest/${ingestionId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menu: draft }),
+        body: JSON.stringify({ menu: draft, currencyCode: currency }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Kaydetme başarısız.');
@@ -169,8 +173,21 @@ export function DraftEditor({
           />
           <p className="text-sm text-stone-500">
             {draft.categories.length} kategori · {itemCount} ürün
-            {draft.currency_guess ? ` · para birimi tahmini: ${draft.currency_guess}` : ''}
           </p>
+          <label className="mt-2 flex items-center gap-2 text-sm text-stone-600">
+            Para birimi:
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              className="rounded-lg border border-stone-300 px-2 py-1 outline-none focus:border-brand-500"
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.symbol} {c.code} — {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -254,18 +271,46 @@ export function DraftEditor({
                         rows={1}
                         className="mt-1 w-full resize-none rounded border border-transparent bg-transparent text-sm text-stone-600 outline-none placeholder:text-stone-300 focus:border-stone-300"
                       />
+                      <textarea
+                        value={item.ingredients ?? ''}
+                        onChange={(e) => updateItem(ci, ii, { ingredients: e.target.value || null })}
+                        placeholder="İçindekiler (virgülle: un, süt, yumurta)"
+                        rows={1}
+                        className="mt-1 w-full resize-none rounded border border-transparent bg-transparent text-sm text-stone-500 outline-none placeholder:text-stone-300 focus:border-stone-300"
+                      />
                     </div>
-                    <input
-                      inputMode="decimal"
-                      value={item.price ?? ''}
-                      onChange={(e) => {
-                        const v = e.target.value.replace(',', '.');
-                        updateItem(ci, ii, { price: v === '' ? null : Number.isNaN(Number(v)) ? item.price : Number(v) });
-                      }}
-                      placeholder="Fiyat"
-                      className="w-24 rounded-lg border border-stone-200 px-2 py-1 text-right outline-none focus:border-brand-500"
-                      aria-label="Fiyat"
-                    />
+                    <div className="flex w-28 flex-col gap-1">
+                      <div className="flex items-center gap-1">
+                        <input
+                          inputMode="decimal"
+                          value={item.price ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(',', '.');
+                            updateItem(ci, ii, {
+                              price: v === '' ? null : Number.isNaN(Number(v)) ? item.price : Number(v),
+                            });
+                          }}
+                          placeholder="Fiyat"
+                          className="w-full rounded-lg border border-stone-200 px-2 py-1 text-right outline-none focus:border-brand-500"
+                          aria-label="Fiyat"
+                        />
+                        <span className="w-4 text-sm text-stone-500">{currencySymbol(currency)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <input
+                          inputMode="numeric"
+                          value={item.calories_kcal ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/[^0-9]/g, '');
+                            updateItem(ci, ii, { calories_kcal: v === '' ? null : parseInt(v, 10) });
+                          }}
+                          placeholder="Kcal"
+                          className="w-full rounded-lg border border-stone-200 px-2 py-1 text-right text-sm outline-none focus:border-brand-500"
+                          aria-label="Kalori"
+                        />
+                        <span className="w-4 text-xs text-stone-400">kc</span>
+                      </div>
+                    </div>
                     <button
                       onClick={() => removeItem(ci, ii)}
                       className="rounded-lg px-2 py-1 text-stone-400 transition hover:bg-red-50 hover:text-red-600"

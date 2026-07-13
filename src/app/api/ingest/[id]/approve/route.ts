@@ -9,6 +9,8 @@ export const maxDuration = 60;
 const bodySchema = z.object({
   /** Kullanıcının studyoda düzenlediği nihai taslak. */
   menu: extractedMenuSchema,
+  /** Seçilen para birimi (ISO 4217) — venue'ya yazılır. */
+  currencyCode: z.string().length(3).optional(),
 });
 
 /**
@@ -50,6 +52,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
   if (ingestion.status !== 'review' && ingestion.status !== 'approved') {
     return NextResponse.json({ error: 'Bu içe aktarma onaylanabilir durumda değil.' }, { status: 409 });
+  }
+
+  // Para birimini venue'ya yaz (seçildiyse)
+  if (parsed.data.currencyCode) {
+    await supabase
+      .from('venues')
+      .update({ currency_code: parsed.data.currencyCode })
+      .eq('id', ingestion.venue_id);
   }
 
   // Alerjen + diyet kod → id haritaları
