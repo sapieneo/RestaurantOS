@@ -27,6 +27,7 @@ Menucraft'taki olgunluğu yeni mimariye taşıyoruz. İlke: güçlü ama **temiz
 Kabul: taslak editöründe para birimi/kalori/içindekiler/rozet düzenlenip onaylanabiliyor; misafir menüsü örnek ekranlardaki gibi zengin görünüyor; ücretsiz sınırları aşan görsel özellikler kilitli.
 
 ## Faz B — Yayın + QR + hesap (M3/M4)
+- **İşletme ayarları ekranı. ✅ TAMAMLANDI.** `/studyo/ayarlar`: ad, açıklama, para birimi, adres, harita, telefon, whatsapp, instagram, çalışma saati, wifi düzenleme (PATCH /api/venue, RLS editor). Misafir menüsü footer'ını doldurur. Editör 'kaydedildi' ve uyum ekranlarından erişilir.
 - Yayınlama akışı (taslak → canlı), `/q/{code}` QR yönlendirme, basılı QR asla ölmez.
 - Anonim oturumu **magic link / Google** ile kalıcı hesaba dönüştürme.
 - **Telefon numarası alma** (ücretsiz plan şartı).

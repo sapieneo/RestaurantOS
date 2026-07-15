@@ -201,6 +201,12 @@ export function DraftEditor({
             >
               Alerjenleri onayla →
             </a>
+            <a
+              href="/studyo/ayarlar"
+              className="text-sm font-medium text-brand-600 hover:text-brand-700"
+            >
+              ⚙ İşletme bilgilerini düzenle (adres, telefon, saat…)
+            </a>
             <a href="/studyo" className="text-sm font-medium text-stone-500 hover:text-stone-700">
               + Başka sayfa ekle
             </a>

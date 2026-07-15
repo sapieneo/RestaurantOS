@@ -172,12 +172,18 @@ export function ComplianceReviewer({
               {pending.length} ürün henüz incelenmedi
             </span>
           )}
+          <a
+            href="/studyo/ayarlar"
+            className="ml-auto rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+          >
+            ⚙ İşletme ayarları
+          </a>
           {previewSlug && (
             <a
               href={`/m/${previewSlug}`}
               target="_blank"
               rel="noreferrer"
-              className="ml-auto rounded-lg border border-brand-300 px-3 py-1.5 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
+              className="rounded-lg border border-brand-300 px-3 py-1.5 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
             >
               👁 Misafir menüsünü önizle
             </a>
