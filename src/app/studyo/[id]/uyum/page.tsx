@@ -43,7 +43,7 @@ export default async function CompliancePage({ params }: { params: { id: string 
 
   const { data: venue } = await supabase
     .from('venues')
-    .select('id, name')
+    .select('id, name, slug')
     .eq('id', ingestion.venue_id)
     .maybeSingle();
 
@@ -99,6 +99,7 @@ export default async function CompliancePage({ params }: { params: { id: string 
       ingestionId={ingestion.id}
       venueId={ingestion.venue_id}
       venueName={venue?.name ?? 'İşletmem'}
+      previewSlug={venue?.slug ?? null}
       items={items}
     />
   );

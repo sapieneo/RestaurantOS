@@ -34,11 +34,13 @@ export function ComplianceReviewer({
   ingestionId,
   venueId,
   venueName,
+  previewSlug,
   items: initial,
 }: {
   ingestionId: string;
   venueId: string;
   venueName: string;
+  previewSlug: string | null;
   items: ReviewItem[];
 }) {
   const [items, setItems] = useState<ItemState[]>(() =>
@@ -170,9 +172,19 @@ export function ComplianceReviewer({
               {pending.length} ürün henüz incelenmedi
             </span>
           )}
+          {previewSlug && (
+            <a
+              href={`/m/${previewSlug}`}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto rounded-lg border border-brand-300 px-3 py-1.5 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
+            >
+              👁 Misafir menüsünü önizle
+            </a>
+          )}
           <a
             href={`/api/compliance/report?venueId=${venueId}`}
-            className="ml-auto rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+            className={`${previewSlug ? '' : 'ml-auto '}rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50`}
           >
             ⬇ Uyum raporunu indir (PDF)
           </a>

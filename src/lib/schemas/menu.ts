@@ -38,6 +38,8 @@ export const extractedCategorySchema = z.object({
 /** Claude'un submit_menu aracına vermesi zorunlu şema. */
 export const extractedMenuSchema = z.object({
   menu_name: z.string().min(1).max(120).default('Menü'),
+  /** İşletme/restoran adı (logo/başlık/üstbilgiden). Bulunamazsa null. */
+  venue_name_guess: z.string().max(120).nullish(),
   currency_guess: z.string().length(3).nullish(), // ISO 4217 tahmini
   language_guess: z.string().min(2).max(5).nullish(), // BCP 47 tahmini
   categories: z.array(extractedCategorySchema).min(1),

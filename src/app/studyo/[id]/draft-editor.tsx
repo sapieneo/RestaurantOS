@@ -16,16 +16,20 @@ const ALLERGEN_LABELS: Record<string, string> = {
 
 type SaveState = { name: 'idle' } | { name: 'saving' } | { name: 'done'; itemCount: number } | { name: 'error'; message: string };
 
+const DEFAULT_VENUE_NAME = 'İşletmem';
+
 /**
  * AI taslağını düzenleme ekranı. Değişiklikler client state'te tutulur,
  * "Onayla ve Kaydet" tek istekte veritabanına yazar (idempotent).
- * Alerjen çipleri M1'de salt-okunur bilgidir; onay akışı M2'de gelir.
+ * Kategori/ürün ekleme, silme ve sıralama (sort_order approve'da dizi
+ * sırasından yazılır). Alerjen çipleri M1'de salt-okunur; onay akışı M2'de.
  */
 export function DraftEditor({
   ingestionId,
   venueId,
   orgId,
   initialCurrency,
+  initialVenueName,
   initialDraft,
   alreadyApproved,
 }: {
@@ -33,11 +37,19 @@ export function DraftEditor({
   venueId: string;
   orgId: string;
   initialCurrency: string;
+  initialVenueName: string | null;
   initialDraft: ExtractedMenu;
   alreadyApproved: boolean;
 }) {
   const [draft, setDraft] = useState<ExtractedMenu>(initialDraft);
   const [currency, setCurrency] = useState(initialCurrency);
+  // İşletme adı: kullanıcı daha önce ayarladıysa onu, yoksa AI'ın menüden
+  // okuduğu adı öner. Varsayılan "İşletmem" = henüz ayarlanmadı say.
+  const [venueName, setVenueName] = useState(
+    initialVenueName && initialVenueName !== DEFAULT_VENUE_NAME
+      ? initialVenueName
+      : initialDraft.venue_name_guess ?? ''
+  );
   const [save, setSave] = useState<SaveState>({ name: 'idle' });
   const [adding, setAdding] = useState(false);
   const addRef = useRef<HTMLInputElement>(null);
@@ -91,6 +103,30 @@ export function DraftEditor({
     }));
   }
 
+  function addCategory() {
+    setDraft((d) => ({
+      ...d,
+      categories: [...d.categories, { name: 'Yeni kategori', items: [] }],
+    }));
+  }
+
+  function removeCategory(ci: number) {
+    setDraft((d) => ({
+      ...d,
+      categories: d.categories.filter((_, i) => i !== ci),
+    }));
+  }
+
+  function moveCategory(ci: number, dir: -1 | 1) {
+    setDraft((d) => {
+      const j = ci + dir;
+      if (j < 0 || j >= d.categories.length) return d;
+      const cats = [...d.categories];
+      [cats[ci], cats[j]] = [cats[j], cats[ci]];
+      return { ...d, categories: cats };
+    });
+  }
+
   function updateItem(ci: number, ii: number, patch: Partial<ExtractedMenu['categories'][number]['items'][number]>) {
     setDraft((d) => ({
       ...d,
@@ -109,6 +145,16 @@ export function DraftEditor({
     }));
   }
 
+  function moveItem(ci: number, ii: number, dir: -1 | 1) {
+    setDraft((d) => {
+      const items = [...d.categories[ci].items];
+      const j = ii + dir;
+      if (j < 0 || j >= items.length) return d;
+      [items[ii], items[j]] = [items[j], items[ii]];
+      return { ...d, categories: d.categories.map((c, i) => (i === ci ? { ...c, items } : c)) };
+    });
+  }
+
   function addItem(ci: number) {
     setDraft((d) => ({
       ...d,
@@ -124,7 +170,11 @@ export function DraftEditor({
       const res = await fetch(`/api/ingest/${ingestionId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ menu: draft, currencyCode: currency }),
+        body: JSON.stringify({
+          menu: draft,
+          currencyCode: currency,
+          venueName: venueName.trim() || undefined,
+        }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Kaydetme başarısız.');
@@ -165,10 +215,19 @@ export function DraftEditor({
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-brand-600">Adım 2 / 3 · Taslağı düzenle</p>
+          <label className="mt-1 block text-xs font-medium text-stone-400">İşletme adı</label>
+          <input
+            value={venueName}
+            onChange={(e) => setVenueName(e.target.value)}
+            placeholder="İşletmenizin adı (misafir menüsünde görünür)"
+            className="w-full rounded-lg border border-transparent bg-transparent text-2xl font-bold outline-none placeholder:text-stone-300 focus:border-stone-300 focus:bg-white"
+            aria-label="İşletme adı"
+          />
+          <label className="mt-2 block text-xs font-medium text-stone-400">Menü adı</label>
           <input
             value={draft.menu_name}
             onChange={(e) => setDraft((d) => ({ ...d, menu_name: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-transparent bg-transparent text-2xl font-bold outline-none focus:border-stone-300 focus:bg-white"
+            className="w-full rounded-lg border border-transparent bg-transparent text-lg font-semibold outline-none focus:border-stone-300 focus:bg-white"
             aria-label="Menü adı"
           />
           <p className="text-sm text-stone-500">
@@ -247,16 +306,66 @@ export function DraftEditor({
       <div className="space-y-6">
         {draft.categories.map((cat, ci) => (
           <section key={ci} className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
-            <input
-              value={cat.name}
-              onChange={(e) => updateCategory(ci, e.target.value)}
-              className="w-full rounded-lg border border-transparent bg-transparent text-lg font-semibold outline-none focus:border-stone-300"
-              aria-label={`Kategori adı ${ci + 1}`}
-            />
+            <div className="flex items-center gap-2">
+              <input
+                value={cat.name}
+                onChange={(e) => updateCategory(ci, e.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent text-lg font-semibold outline-none focus:border-stone-300"
+                aria-label={`Kategori adı ${ci + 1}`}
+              />
+              <div className="flex shrink-0 items-center gap-0.5">
+                <button
+                  onClick={() => moveCategory(ci, -1)}
+                  disabled={ci === 0}
+                  className="rounded-lg px-2 py-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30"
+                  aria-label="Kategoriyi yukarı taşı"
+                  title="Yukarı taşı"
+                >
+                  ↑
+                </button>
+                <button
+                  onClick={() => moveCategory(ci, 1)}
+                  disabled={ci === draft.categories.length - 1}
+                  className="rounded-lg px-2 py-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30"
+                  aria-label="Kategoriyi aşağı taşı"
+                  title="Aşağı taşı"
+                >
+                  ↓
+                </button>
+                <button
+                  onClick={() => removeCategory(ci)}
+                  className="rounded-lg px-2 py-1 text-stone-400 transition hover:bg-red-50 hover:text-red-600"
+                  aria-label="Kategoriyi sil"
+                  title="Kategoriyi sil"
+                >
+                  🗑
+                </button>
+              </div>
+            </div>
             <ul className="mt-3 divide-y divide-stone-100">
               {cat.items.map((item, ii) => (
                 <li key={ii} className="flex flex-col gap-2 py-3">
                   <div className="flex items-start gap-2">
+                    <div className="flex shrink-0 flex-col pt-1">
+                      <button
+                        onClick={() => moveItem(ci, ii, -1)}
+                        disabled={ii === 0}
+                        className="px-1 text-xs text-stone-400 transition hover:text-stone-700 disabled:opacity-30"
+                        aria-label="Ürünü yukarı taşı"
+                        title="Yukarı taşı"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        onClick={() => moveItem(ci, ii, 1)}
+                        disabled={ii === cat.items.length - 1}
+                        className="px-1 text-xs text-stone-400 transition hover:text-stone-700 disabled:opacity-30"
+                        aria-label="Ürünü aşağı taşı"
+                        title="Aşağı taşı"
+                      >
+                        ↓
+                      </button>
+                    </div>
                     <div className="min-w-0 flex-1">
                       <input
                         value={item.name}
@@ -279,8 +388,8 @@ export function DraftEditor({
                         className="mt-1 w-full resize-none rounded border border-transparent bg-transparent text-sm text-stone-500 outline-none placeholder:text-stone-300 focus:border-stone-300"
                       />
                     </div>
-                    <div className="flex w-28 flex-col gap-1">
-                      <div className="flex items-center gap-1">
+                    <div className="flex w-32 shrink-0 flex-col gap-1.5">
+                      <label className="flex items-center gap-1 rounded-lg border border-stone-200 px-2 focus-within:border-brand-500">
                         <input
                           inputMode="decimal"
                           value={item.price ?? ''}
@@ -291,12 +400,12 @@ export function DraftEditor({
                             });
                           }}
                           placeholder="Fiyat"
-                          className="w-full rounded-lg border border-stone-200 px-2 py-1 text-right outline-none focus:border-brand-500"
+                          className="w-full bg-transparent py-1 text-right text-sm outline-none"
                           aria-label="Fiyat"
                         />
-                        <span className="w-4 text-sm text-stone-500">{currencySymbol(currency)}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
+                        <span className="w-8 shrink-0 text-xs text-stone-400">{currencySymbol(currency)}</span>
+                      </label>
+                      <label className="flex items-center gap-1 rounded-lg border border-stone-200 px-2 focus-within:border-brand-500">
                         <input
                           inputMode="numeric"
                           value={item.calories_kcal ?? ''}
@@ -304,12 +413,12 @@ export function DraftEditor({
                             const v = e.target.value.replace(/[^0-9]/g, '');
                             updateItem(ci, ii, { calories_kcal: v === '' ? null : parseInt(v, 10) });
                           }}
-                          placeholder="Kcal"
-                          className="w-full rounded-lg border border-stone-200 px-2 py-1 text-right text-sm outline-none focus:border-brand-500"
+                          placeholder="Kalori"
+                          className="w-full bg-transparent py-1 text-right text-sm outline-none"
                           aria-label="Kalori"
                         />
-                        <span className="w-4 text-xs text-stone-400">kc</span>
-                      </div>
+                        <span className="w-8 shrink-0 text-xs text-stone-400">kcal</span>
+                      </label>
                     </div>
                     <button
                       onClick={() => removeItem(ci, ii)}
@@ -321,7 +430,7 @@ export function DraftEditor({
                     </button>
                   </div>
                   {item.allergens.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1.5 pl-7">
                       {item.allergens.map((a) => (
                         <span
                           key={a.code}
@@ -345,6 +454,13 @@ export function DraftEditor({
           </section>
         ))}
       </div>
+
+      <button
+        onClick={addCategory}
+        className="mt-6 w-full rounded-2xl border-2 border-dashed border-stone-300 py-4 text-sm font-semibold text-stone-500 transition hover:border-brand-400 hover:text-brand-600"
+      >
+        + Kategori ekle
+      </button>
 
       <p className="mt-6 text-center text-xs text-stone-400">
         Alerjen etiketleri yapay zeka önerisidir; menünde yayınlanmadan önce

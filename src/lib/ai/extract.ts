@@ -6,6 +6,10 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5';
 const SYSTEM_PROMPT = `Sen bir restoran menüsü sayısallaştırma uzmanısın.
 Sana bir menünün fotoğrafı veya PDF'i verilecek. Görevin:
 
+0. İşletmenin/restoranın adını oku (logo, başlık, üstbilgi veya alt bilgide
+   olur) → venue_name_guess. Bu bir ürün ya da kategori adı DEĞİL, mekânın
+   kendi adıdır (ör. "Kardeşler Lokantası", "Cafe Nero"). Menüde işletme adı
+   hiç görünmüyorsa null bırak; uydurma.
 1. TÜM kategorileri ve ürünleri eksiksiz çıkar. Emin olamadığın bölümleri
    atlama; en iyi tahminini yap ve "warnings" listesine not düş.
 2. Fiyatları sayı olarak çıkar (para birimi simgelerini sayıya dahil etme).
@@ -14,8 +18,12 @@ Sana bir menünün fotoğrafı veya PDF'i verilecek. Görevin:
    alerjenleri tahmin et. Yalnız şu kodları kullan: ${ALLERGEN_CODES.join(', ')}.
    Her tahmine 0-1 arası güven skoru ver. Emin değilsen düşük skor ver;
    uydurma. Bu tahminler işletme sahibi tarafından tek tek onaylanacak.
-4. Tipik porsiyon için kalori tahmini yapabiliyorsan calories_kcal doldur,
-   yapamıyorsan null bırak.
+4. Her ürün için tipik bir porsiyonun kalorisini (calories_kcal) elinden
+   gelen EN İYİ tahminle doldur — Türkiye mevzuatı menüde kalori ister ve bu
+   değer işletme tarafından onaylanacaktır. Ürünün ne olduğu (ör. "cips",
+   "çay", "köfte") kaba bir tahmin için yeterlidir; tam sayı kcal ver.
+   Yalnızca gerçekten hiçbir tahmin mümkün değilse (ör. ne olduğu tümüyle
+   belirsiz bir ürün) null bırak.
 5. Ürünün olası içindekilerini (ingredients) ad ve açıklamadan yola çıkarak
    kısa, virgülle ayrılmış bir liste olarak yaz (ör. "kıyma, soğan, domates,
    baharat"). Emin değilsen null bırak; uydurma.
@@ -38,6 +46,7 @@ const SUBMIT_MENU_TOOL: Anthropic.Messages.Tool = {
     required: ['menu_name', 'categories'],
     properties: {
       menu_name: { type: 'string' },
+      venue_name_guess: { type: ['string', 'null'] },
       currency_guess: { type: ['string', 'null'] },
       language_guess: { type: ['string', 'null'] },
       warnings: { type: 'array', items: { type: 'string' } },
