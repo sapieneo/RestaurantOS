@@ -173,8 +173,14 @@ export function ComplianceReviewer({
             </span>
           )}
           <a
-            href="/studyo/ayarlar"
+            href="/studyo/gorseller"
             className="ml-auto rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+          >
+            🖼 Görseller
+          </a>
+          <a
+            href="/studyo/ayarlar"
+            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
           >
             ⚙ İşletme ayarları
           </a>

@@ -202,6 +202,12 @@ export function DraftEditor({
               Alerjenleri onayla →
             </a>
             <a
+              href="/studyo/gorseller"
+              className="text-sm font-medium text-brand-600 hover:text-brand-700"
+            >
+              🖼 Ürün görselleri ekle (AI ile üret veya yükle)
+            </a>
+            <a
               href="/studyo/ayarlar"
               className="text-sm font-medium text-brand-600 hover:text-brand-700"
             >
