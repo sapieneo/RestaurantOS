@@ -1,34 +1,29 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
-import {
-  buildFoodPrompt,
-  describeDishInEnglish,
-  generateImage,
-  ImageError,
-  isImageConfigured,
-} from '@/lib/ai/image';
+import { upscaleImage, ImageError, isImageConfigured } from '@/lib/ai/image';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const bodySchema = z.object({
   itemId: z.string().uuid(),
-  /** İsteğe bağlı özel prompt (yoksa üründen üretilir). */
-  prompt: z.string().trim().min(2).max(2000).optional(),
+  /** Kullanıcının yüklediği kaynak görselin (geçici) public URL'i. */
+  sourceUrl: z.string().url(),
 });
 
 const EDITOR_ROLES = ['owner', 'admin', 'editor'];
 
 /**
- * POST /api/image/generate
- * Ürün için AI görseli üretir (Runware), venue-media'ya kalıcı kaydeder,
- * items.image_url'i günceller. Üyelik (editor+) doğrulanır.
+ * POST /api/image/enhance
+ * Kullanıcının yüklediği görseli içeriğini değiştirmeden yükseltir/keskinleştirir
+ * (Runware upscale), venue-media'ya kalıcı kaydeder, items.image_url'i günceller
+ * ve geçici kaynak görseli siler.
  */
 export async function POST(request: NextRequest) {
   if (!isImageConfigured()) {
     return NextResponse.json(
-      { error: 'Görsel üretimi yapılandırılmamış. RUNWARE_API_KEY ekleyin.' },
+      { error: 'Görsel iyileştirme yapılandırılmamış. RUNWARE_API_KEY ekleyin.' },
       { status: 501 }
     );
   }
@@ -45,19 +40,24 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Geçersiz istek.' }, { status: 400 });
   }
+  const { itemId, sourceUrl } = parsed.data;
+
+  const publicPrefix = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/venue-media/`;
+  if (!sourceUrl.startsWith(publicPrefix)) {
+    return NextResponse.json({ error: 'Geçersiz görsel adresi.' }, { status: 400 });
+  }
+  const sourcePath = sourceUrl.slice(publicPrefix.length).split('?')[0];
 
   const admin = createAdminClient();
-
-  const { data: item } = await admin
-    .from('items')
-    .select('id, name, description, ingredients, org_id')
-    .eq('id', parsed.data.itemId)
-    .maybeSingle();
+  const { data: item } = await admin.from('items').select('id, org_id').eq('id', itemId).maybeSingle();
   if (!item) {
     return NextResponse.json({ error: 'Ürün bulunamadı.' }, { status: 404 });
   }
+  // Kaynak yolu bu ürünün org klasörüne ait olmalı
+  if (!sourcePath.startsWith(`${item.org_id}/`)) {
+    return NextResponse.json({ error: 'Geçersiz görsel adresi.' }, { status: 400 });
+  }
 
-  // Üyelik doğrula (editor+)
   const { data: mem } = await admin
     .from('organization_members')
     .select('role')
@@ -69,9 +69,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const subject = await describeDishInEnglish(item.name, item.description, item.ingredients);
-    const prompt = parsed.data.prompt ?? buildFoodPrompt(subject);
-    const bytes = await generateImage(prompt);
+    const bytes = await upscaleImage(sourceUrl);
 
     const path = `${item.org_id}/items/${item.id}-${Date.now().toString(36)}.webp`;
     const { error: upErr } = await admin.storage
@@ -93,9 +91,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Görsel ürüne bağlanamadı.' }, { status: 500 });
     }
 
+    // Geçici kaynağı temizle (son görsel değilse)
+    if (sourcePath !== path) {
+      await admin.storage.from('venue-media').remove([sourcePath]);
+    }
+
     return NextResponse.json({ imageUrl: publicUrl });
   } catch (err) {
-    const message = err instanceof ImageError ? err.message : 'Görsel üretilemedi.';
+    const message = err instanceof ImageError ? err.message : 'Görsel iyileştirilemedi.';
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

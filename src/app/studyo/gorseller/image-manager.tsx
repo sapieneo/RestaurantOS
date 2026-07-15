@@ -9,7 +9,7 @@ export type ImgCategory = { id: string; name: string; items: ImgItem[] };
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_BYTES = 10 * 1024 * 1024;
 
-type Busy = 'gen' | 'upload' | 'remove' | null;
+type Busy = 'gen' | 'upload' | 'enhance' | 'remove' | null;
 
 export function ImageManager({
   orgId,
@@ -24,6 +24,7 @@ export function ImageManager({
   const [busy, setBusy] = useState<Record<string, Busy>>({});
   const [err, setErr] = useState<Record<string, string | null>>({});
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const enhanceRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const total = cats.reduce((n, c) => n + c.items.length, 0);
   const withImage = cats.reduce((n, c) => n + c.items.filter((i) => i.imageUrl).length, 0);
@@ -82,6 +83,38 @@ export function ImageManager({
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Görsel bağlanamadı.');
       setItemUrl(itemId, `${publicUrl}?t=${Date.now()}`);
+    } catch (e) {
+      fail(itemId, e instanceof Error ? e.message : 'Beklenmeyen hata.');
+    } finally {
+      mark(itemId, null);
+    }
+  }
+
+  async function enhance(itemId: string, file: File) {
+    if (!ACCEPTED.includes(file.type)) return fail(itemId, 'JPG, PNG veya WebP yükleyin.');
+    if (file.size > MAX_BYTES) return fail(itemId, 'Görsel 10 MB sınırını aşıyor.');
+    mark(itemId, 'enhance');
+    fail(itemId, null);
+    try {
+      const supabase = createClient();
+      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+      // Geçici yol; iyileştirilmiş sürüm kaydedilince silinir.
+      const tmpPath = `${orgId}/tmp/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('venue-media')
+        .upload(tmpPath, file, { contentType: file.type, upsert: true });
+      if (upErr) throw new Error('Yükleme başarısız. Bağlantınızı kontrol edin.');
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('venue-media').getPublicUrl(tmpPath);
+      const res = await fetch('/api/image/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId, sourceUrl: publicUrl }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'İyileştirilemedi.');
+      setItemUrl(itemId, `${body.imageUrl}?t=${Date.now()}`);
     } catch (e) {
       fail(itemId, e instanceof Error ? e.message : 'Beklenmeyen hata.');
     } finally {
@@ -181,6 +214,14 @@ export function ImageManager({
                         >
                           {b === 'upload' ? 'Yükleniyor…' : 'Elle yükle'}
                         </button>
+                        <button
+                          onClick={() => enhanceRefs.current[it.id]?.click()}
+                          disabled={working}
+                          title="Yüklediğin fotoğrafı keskinleştirip yükler"
+                          className="rounded-lg border border-stone-300 px-3 py-1 text-xs font-medium text-stone-700 transition hover:bg-stone-50 disabled:opacity-50"
+                        >
+                          {b === 'enhance' ? 'İyileştiriliyor…' : '✨ İyileştir ve yükle'}
+                        </button>
                         {it.imageUrl && (
                           <button
                             onClick={() => remove(it.id)}
@@ -200,6 +241,19 @@ export function ImageManager({
                           onChange={(e) => {
                             const f = e.target.files?.[0];
                             if (f) void upload(it.id, f);
+                            e.target.value = '';
+                          }}
+                        />
+                        <input
+                          ref={(el) => {
+                            enhanceRefs.current[it.id] = el;
+                          }}
+                          type="file"
+                          accept={ACCEPTED.join(',')}
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void enhance(it.id, f);
                             e.target.value = '';
                           }}
                         />

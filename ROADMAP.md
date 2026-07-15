@@ -20,7 +20,7 @@ Menucraft'taki olgunluğu yeni mimariye taşıyoruz. İlke: güçlü ama **temiz
 - **A5 · Elle ekleme. ✅ TAMAMLANDI.** Editörde elle ürün ekle (var) **ve** kategori ekle ("+ Kategori ekle"); kategori sil.
 - **A6 · Sıralama. ✅ TAMAMLANDI.** Ürünleri ve kategorileri ok tuşlarıyla yukarı/aşağı taşı. `sort_order` approve'da dizi sırasından yazılır (şema değişikliği yok). Sıralama/ekleme "Yeniden Kaydet" ile canlıya yansır.
 - **Tahribatsız yeniden kaydetme. ✅ TAMAMLANDI.** Approve, silmeden önce mevcut alerjen/diyet/kalori onaylarını (kategori adı + ürün adı) anahtarıyla anımsar ve yeniden oluşturulan ürünlere geri uygular. Sıralama/düzenleme sonrası "Yeniden Kaydet" onayları KORUR; yalnız adı değişen/yeni ürünler tekrar 'pending' olur. Yanıt `restoredCount` döner.
-- **A7 · Ürün görseli (AI).** Ürün başına AI görsel üretimi (opsiyonel; ücretli katman — bkz. Faz C).
+- **A7 · Ürün görseli (AI). ✅ TAMAMLANDI.** `/studyo/gorseller`: Runware ile AI görsel üretimi (FLUX.1 schnell varsayılan), yeniden üret, elle yükle, kaldır. Görsel venue-media'ya kalıcı kaydedilir, `items.image_url` yazılır, misafir menüsünde görünür. `RUNWARE_API_KEY` gerekir. (Ücretli katman gating'i Faz C'de.)
 - **A8 · Kategori arka planı.** Kategoriyi temsil eden arka plan görseli (opsiyonel; ücretli katman).
 - **A9 · Misafir menüsü (M3). ✅ TAMAMLANDI.** `/m/[slug]` genel menü ekranı: yapışkan kategori sekmeleri (scroll-spy), ürün satırları, detay modalı (içindekiler + alerjen + kalori + rozet + "işletme beyanı" notu), iletişim & bilgi footer'ı (adres, harita, telefon, whatsapp, instagram, çalışma saati, wifi). Uyum ekranından "Misafir menüsünü önizle" linki. Yeni migration: `0007_venue_hours.sql` (venues.opening_hours).
 
