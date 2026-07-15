@@ -66,6 +66,48 @@ export async function describeDishInEnglish(
   }
 }
 
+const CATEGORY_SYSTEM = `Bir restoran menüsünde kategori başlığının ARKASINDA
+gösterilecek atmosferik arka plan sahnesini betimliyorsun. Sana kategori adı
+verilecek (Türkçe olabilir). Görevin: kategoriye uygun, İngilizce, KISA bir
+ortam/atmosfer betimlemesi üret — yumuşak odaklı, banner arka planı olacak;
+belirgin tek bir ürün ya da yazı olmasın.
+SADECE ifadeyi yaz; tırnak, açıklama, ekstra kelime yok.
+Örnekler:
+"Alkollü İçecekler" -> a cozy dim bar with backlit liquor bottles and warm bokeh
+"Tatlılar" -> an elegant dessert table with soft pastel tones and blurred lights
+"Mezeler" -> a rustic table with assorted Turkish meze in soft focus
+"Sıcaklar" -> a warm restaurant kitchen grill scene with gentle steam
+"Alkolsüz İçecekler" -> fresh cold drinks with ice and mint on a bright table`;
+
+/** Kategori adını atmosferik arka plan sahnesine çevirir (Claude). */
+export async function describeCategoryBackground(name: string): Promise<string> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return name;
+  try {
+    const anthropic = new Anthropic({ apiKey: key });
+    const res = await anthropic.messages.create({
+      model: PROMPT_MODEL,
+      max_tokens: 100,
+      system: CATEGORY_SYSTEM,
+      messages: [{ role: 'user', content: `Kategori: ${name}` }],
+    });
+    const block = res.content.find((b) => b.type === 'text');
+    const text = block && 'text' in block ? block.text.trim() : '';
+    return text || name;
+  } catch {
+    return name;
+  }
+}
+
+/** Atmosferik geniş arka plan prompt'u (kategori banner'ı için). */
+export function buildBackgroundPrompt(subject: string): string {
+  return (
+    `Atmospheric wide background photograph of ${subject}. ` +
+    `Soft focus, shallow depth of field, warm ambient lighting, cinematic, ` +
+    `restaurant menu banner background. No text, no watermark, no prominent single object.`
+  );
+}
+
 /** Görsel öznesini yemek fotoğrafı prompt'una sarar. */
 export function buildFoodPrompt(subject: string): string {
   return (
@@ -128,14 +170,17 @@ async function download(url: string): Promise<Buffer> {
 }
 
 /** Verilen prompt'tan tek görsel üretir, WEBP baytlarını döndürür. */
-export async function generateImage(prompt: string): Promise<Buffer> {
+export async function generateImage(
+  prompt: string,
+  opts?: { width?: number; height?: number }
+): Promise<Buffer> {
   const url = await postRunwareImage({
     taskType: 'imageInference',
     taskUUID: randomUUID(),
     positivePrompt: prompt.slice(0, 2000),
     negativePrompt: NEGATIVE_PROMPT,
-    width: 768,
-    height: 768,
+    width: opts?.width ?? 768,
+    height: opts?.height ?? 768,
     model: MODEL,
     steps: STEPS,
     numberResults: 1,

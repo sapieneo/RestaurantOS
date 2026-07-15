@@ -17,7 +17,12 @@ export type GuestItem = {
   dietaryCodes: string[];
 };
 
-export type GuestCategory = { id: string; name: string; items: GuestItem[] };
+export type GuestCategory = {
+  id: string;
+  name: string;
+  backgroundUrl: string | null;
+  items: GuestItem[];
+};
 
 export type GuestVenue = {
   name: string;
@@ -170,7 +175,22 @@ export function GuestMenu({
             }}
             className="scroll-mt-16 pt-6"
           >
-            <h2 className="mb-2 px-1 text-lg font-bold text-stone-800">{c.name}</h2>
+            {c.backgroundUrl ? (
+              <div className="relative mb-3 h-28 overflow-hidden rounded-2xl">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={c.backgroundUrl}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                <h2 className="absolute bottom-2 left-3 text-xl font-bold text-white drop-shadow-md">
+                  {c.name}
+                </h2>
+              </div>
+            ) : (
+              <h2 className="mb-2 px-1 text-lg font-bold text-stone-800">{c.name}</h2>
+            )}
             <ul className="divide-y divide-stone-100">
               {c.items.map((it) => (
                 <li key={it.id}>

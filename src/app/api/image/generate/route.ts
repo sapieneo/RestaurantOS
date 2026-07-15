@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import {
+  buildBackgroundPrompt,
   buildFoodPrompt,
+  describeCategoryBackground,
   describeDishInEnglish,
   generateImage,
   ImageError,
@@ -12,18 +14,22 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const bodySchema = z.object({
-  itemId: z.string().uuid(),
-  /** İsteğe bağlı özel prompt (yoksa üründen üretilir). */
-  prompt: z.string().trim().min(2).max(2000).optional(),
-});
+const bodySchema = z
+  .object({
+    itemId: z.string().uuid().optional(),
+    categoryId: z.string().uuid().optional(),
+    prompt: z.string().trim().min(2).max(2000).optional(),
+  })
+  .refine((b) => Boolean(b.itemId) !== Boolean(b.categoryId), {
+    message: 'itemId veya categoryId (yalnızca biri) gerekli.',
+  });
 
 const EDITOR_ROLES = ['owner', 'admin', 'editor'];
 
 /**
  * POST /api/image/generate
- * Ürün için AI görseli üretir (Runware), venue-media'ya kalıcı kaydeder,
- * items.image_url'i günceller. Üyelik (editor+) doğrulanır.
+ * Ürün (itemId) veya kategori arka planı (categoryId) için AI görseli üretir,
+ * venue-media'ya kaydeder, ilgili URL alanını günceller. Üyelik (editor+) şart.
  */
 export async function POST(request: NextRequest) {
   if (!isImageConfigured()) {
@@ -45,23 +51,54 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Geçersiz istek.' }, { status: 400 });
   }
-
+  const { itemId, categoryId, prompt: customPrompt } = parsed.data;
   const admin = createAdminClient();
 
-  const { data: item } = await admin
-    .from('items')
-    .select('id, name, description, ingredients, org_id')
-    .eq('id', parsed.data.itemId)
-    .maybeSingle();
-  if (!item) {
-    return NextResponse.json({ error: 'Ürün bulunamadı.' }, { status: 404 });
+  // Hedefi çöz: ürün mü kategori mi
+  let orgId: string;
+  let table: 'items' | 'categories';
+  let column: 'image_url' | 'background_url';
+  let subdir: 'items' | 'categories';
+  let targetId: string;
+  let prompt: string;
+  let dims: { width: number; height: number } | undefined;
+
+  if (itemId) {
+    const { data: item } = await admin
+      .from('items')
+      .select('id, name, description, ingredients, org_id')
+      .eq('id', itemId)
+      .maybeSingle();
+    if (!item) return NextResponse.json({ error: 'Ürün bulunamadı.' }, { status: 404 });
+    orgId = item.org_id;
+    table = 'items';
+    column = 'image_url';
+    subdir = 'items';
+    targetId = item.id;
+    const subject = await describeDishInEnglish(item.name, item.description, item.ingredients);
+    prompt = customPrompt ?? buildFoodPrompt(subject);
+  } else {
+    const { data: cat } = await admin
+      .from('categories')
+      .select('id, name, org_id')
+      .eq('id', categoryId!)
+      .maybeSingle();
+    if (!cat) return NextResponse.json({ error: 'Kategori bulunamadı.' }, { status: 404 });
+    orgId = cat.org_id;
+    table = 'categories';
+    column = 'background_url';
+    subdir = 'categories';
+    targetId = cat.id;
+    const subject = await describeCategoryBackground(cat.name);
+    prompt = customPrompt ?? buildBackgroundPrompt(subject);
+    dims = { width: 1024, height: 512 };
   }
 
   // Üyelik doğrula (editor+)
   const { data: mem } = await admin
     .from('organization_members')
     .select('role')
-    .eq('org_id', item.org_id)
+    .eq('org_id', orgId)
     .eq('user_id', user.id)
     .maybeSingle();
   if (!mem || !EDITOR_ROLES.includes(mem.role)) {
@@ -69,29 +106,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const subject = await describeDishInEnglish(item.name, item.description, item.ingredients);
-    const prompt = parsed.data.prompt ?? buildFoodPrompt(subject);
-    const bytes = await generateImage(prompt);
-
-    const path = `${item.org_id}/items/${item.id}-${Date.now().toString(36)}.webp`;
+    const bytes = await generateImage(prompt, dims);
+    const path = `${orgId}/${subdir}/${targetId}-${Date.now().toString(36)}.webp`;
     const { error: upErr } = await admin.storage
       .from('venue-media')
       .upload(path, bytes, { contentType: 'image/webp', upsert: true });
-    if (upErr) {
-      return NextResponse.json({ error: 'Görsel kaydedilemedi.' }, { status: 500 });
-    }
+    if (upErr) return NextResponse.json({ error: 'Görsel kaydedilemedi.' }, { status: 500 });
 
     const {
       data: { publicUrl },
     } = admin.storage.from('venue-media').getPublicUrl(path);
 
-    const { error: updErr } = await admin
-      .from('items')
-      .update({ image_url: publicUrl })
-      .eq('id', item.id);
-    if (updErr) {
-      return NextResponse.json({ error: 'Görsel ürüne bağlanamadı.' }, { status: 500 });
-    }
+    const { error: updErr } = await admin.from(table).update({ [column]: publicUrl }).eq('id', targetId);
+    if (updErr) return NextResponse.json({ error: 'Görsel bağlanamadı.' }, { status: 500 });
 
     return NextResponse.json({ imageUrl: publicUrl });
   } catch (err) {

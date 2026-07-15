@@ -40,11 +40,11 @@ export default async function ImagesPage() {
   const { data: categories } = menuIds.length
     ? await supabase
         .from('categories')
-        .select('id, name, sort_order')
+        .select('id, name, sort_order, background_url')
         .in('menu_id', menuIds)
         .eq('is_active', true)
         .order('sort_order')
-    : { data: [] as { id: string; name: string; sort_order: number }[] };
+    : { data: [] as { id: string; name: string; sort_order: number; background_url: string | null }[] };
   const catIds = (categories ?? []).map((c) => c.id);
 
   const { data: items } = catIds.length
@@ -63,7 +63,12 @@ export default async function ImagesPage() {
   }
 
   const imgCategories: ImgCategory[] = (categories ?? [])
-    .map((c) => ({ id: c.id, name: c.name, items: byCat.get(c.id) ?? [] }))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      backgroundUrl: c.background_url ?? null,
+      items: byCat.get(c.id) ?? [],
+    }))
     .filter((c) => c.items.length > 0);
 
   return <ImageManager orgId={venue.org_id} slug={venue.slug} categories={imgCategories} />;
