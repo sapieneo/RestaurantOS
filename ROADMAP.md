@@ -28,7 +28,8 @@ Kabul: taslak editöründe para birimi/kalori/içindekiler/rozet düzenlenip ona
 
 ## Faz B — Yayın + QR + hesap (M3/M4)
 - **İşletme ayarları ekranı. ✅ TAMAMLANDI.** `/studyo/ayarlar`: ad, açıklama, para birimi, adres, harita, telefon, whatsapp, instagram, çalışma saati, wifi düzenleme (PATCH /api/venue, RLS editor). Misafir menüsü footer'ını doldurur. Editör 'kaydedildi' ve uyum ekranlarından erişilir.
-- Yayınlama akışı (taslak → canlı), `/q/{code}` QR yönlendirme, basılı QR asla ölmez.
+- **B1 · Yayınlama akışı. ✅ TAMAMLANDI.** `/studyo/ayarlar` yayın kartı: TASLAK/CANLI rozeti, "Yayınla / Yayından kaldır", canlı link kopyalama. `PATCH /api/venue` artık **kısmi güncelleme** yapıyor (yalnız gelen alanlar yazılır) ve `isPublished` + `slug` kabul ediyor. `published_at` yalnız ilk yayında yazılır, yayından kaldırınca silinmez (arşiv). Yayın öncesi alerjen onayı bekleyen ürün sayısı gösterilir ve onay istenir — bloke edilmez (beyan sorumluluğu işletmede). Menü adresi (slug) düzenlenebilir; unique çakışması 409 + Türkçe mesaj.
+- **B2 · QR yönlendirme. ✅ TAMAMLANDI.** `/studyo/qr`: etiketli kod üretimi ("Masa 4"), etiket düzenleme, devre dışı bırakma (kod ASLA silinmez), PNG + baskıya hazır A6 masa kartı PDF indirme. `/q/{code}` yönlendirme: kod yok / devre dışı / menü yayında değil durumları ayrı ayrı ele alınır. Kod okuması **service-role** ile yapılır çünkü `qr_select` policy'si (`is_active or is_org_member`) anonime pasif kodu göstermez → "yok" ile "pasif" ayrımı yapılamazdı. **Not:** `qr_codes.org_id` NOT NULL ama `app.fill_org_id` trigger'ı bu tabloyu kapsamıyor; org_id API'de venue'dan okunup elle yazılıyor (migration gerekmedi).
 - Anonim oturumu **magic link / Google** ile kalıcı hesaba dönüştürme.
 - **Telefon numarası alma** (ücretsiz plan şartı).
 - Dashboard: menü yönetimi, temel analitik (çerezsiz `scan_events`).

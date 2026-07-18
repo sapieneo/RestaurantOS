@@ -18,11 +18,26 @@ export type VenueSettings = {
   currencyCode: string;
 };
 
+export type PublishState = {
+  isPublished: boolean;
+  publishedAt: string | null;
+  itemCount: number;
+  pendingCount: number;
+};
+
 type Save = { name: 'idle' } | { name: 'saving' } | { name: 'done' } | { name: 'error'; message: string };
 
-export function VenueSettingsForm({ initial }: { initial: VenueSettings }) {
+export function VenueSettingsForm({
+  initial,
+  publish,
+}: {
+  initial: VenueSettings;
+  publish: PublishState;
+}) {
   const [v, setV] = useState<VenueSettings>(initial);
   const [save, setSave] = useState<Save>({ name: 'idle' });
+  const [pub, setPub] = useState<PublishState>(publish);
+  const [savedSlug, setSavedSlug] = useState(initial.slug);
 
   function set<K extends keyof VenueSettings>(key: K, value: VenueSettings[K]) {
     setV((s) => ({ ...s, [key]: value }));
@@ -51,11 +66,31 @@ export function VenueSettingsForm({ initial }: { initial: VenueSettings }) {
           wifiSsid: v.wifiSsid,
           openingHours: v.openingHours,
           currencyCode: v.currencyCode,
+          slug: v.slug.trim().toLowerCase(),
         }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Kaydedilemedi.');
+      setSavedSlug(body.slug ?? v.slug);
       setSave({ name: 'done' });
+    } catch (err) {
+      setSave({ name: 'error', message: err instanceof Error ? err.message : 'Beklenmeyen hata.' });
+    }
+  }
+
+  /** Yayın anahtarı — tek boolean, tüm misafir erişimini açar/kapatır. */
+  async function togglePublish(next: boolean) {
+    setSave({ name: 'saving' });
+    try {
+      const res = await fetch('/api/venue', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueId: v.id, isPublished: next }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'Güncellenemedi.');
+      setPub((s) => ({ ...s, isPublished: body.isPublished, publishedAt: body.publishedAt }));
+      setSave({ name: 'idle' });
     } catch (err) {
       setSave({ name: 'error', message: err instanceof Error ? err.message : 'Beklenmeyen hata.' });
     }
@@ -70,6 +105,13 @@ export function VenueSettingsForm({ initial }: { initial: VenueSettings }) {
           Bu bilgiler misafir menünün başlığında ve iletişim bölümünde görünür.
         </p>
       </header>
+
+      <PublishCard
+        state={pub}
+        slug={savedSlug}
+        busy={save.name === 'saving'}
+        onToggle={togglePublish}
+      />
 
       <div className="space-y-6">
         <Section title="İşletme">
@@ -89,6 +131,24 @@ export function VenueSettingsForm({ initial }: { initial: VenueSettings }) {
               rows={2}
               className={`${inputCls} resize-none`}
             />
+          </Field>
+          <Field label="Menü adresi">
+            <div className="flex items-center rounded-lg border border-stone-300 bg-white px-3 py-2 focus-within:border-brand-500">
+              <span className="shrink-0 text-sm text-stone-400">/m/</span>
+              <input
+                value={v.slug}
+                onChange={(e) => set('slug', e.target.value.toLowerCase())}
+                placeholder="sine-pub"
+                className="w-full bg-transparent text-sm outline-none"
+              />
+            </div>
+            <span className="mt-1 block text-xs text-stone-500">
+              Küçük harf, rakam ve tire. Değiştirirsen eski bağlantı çalışmaz —{' '}
+              <a href="/studyo/qr" className="underline">
+                basılı QR kodların
+              </a>{' '}
+              etkilenmez.
+            </span>
           </Field>
           <Field label="Para birimi">
             <select
@@ -189,7 +249,13 @@ export function VenueSettingsForm({ initial }: { initial: VenueSettings }) {
           <span className="text-sm font-medium text-emerald-600">✓ Kaydedildi</span>
         )}
         <a
-          href={`/m/${v.slug}`}
+          href="/studyo/qr"
+          className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+        >
+          QR kodları
+        </a>
+        <a
+          href={`/m/${savedSlug}`}
           target="_blank"
           rel="noreferrer"
           className="ml-auto rounded-lg border border-brand-300 px-4 py-2 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
@@ -198,6 +264,123 @@ export function VenueSettingsForm({ initial }: { initial: VenueSettings }) {
         </a>
       </div>
     </main>
+  );
+}
+
+/**
+ * Yayın kartı. `is_published` tek bir boolean ama 0001'deki tüm public SELECT
+ * policy'leri ona bağlı: kapalıyken menüyü yalnız org üyesi görür.
+ */
+function PublishCard({
+  state,
+  slug,
+  busy,
+  onToggle,
+}: {
+  state: PublishState;
+  slug: string;
+  busy: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const liveUrl = typeof window === 'undefined' ? `/m/${slug}` : `${window.location.origin}/m/${slug}`;
+
+  function confirmAndPublish() {
+    if (state.pendingCount > 0) {
+      const ok = window.confirm(
+        `${state.pendingCount} ürünün alerjen onayı bekliyor. Onaylanmamış ürünlerin alerjen ` +
+          'bilgisi misafire GÖSTERİLMEZ.\n\nYine de yayınlamak istiyor musun?'
+      );
+      if (!ok) return;
+    }
+    onToggle(true);
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(liveUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* pano erişimi yoksa sessiz geç */
+    }
+  }
+
+  return (
+    <section
+      className={`mb-6 rounded-2xl border p-5 shadow-sm ${
+        state.isPublished ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'
+      }`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                state.isPublished ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
+              }`}
+            >
+              {state.isPublished ? 'CANLI' : 'TASLAK'}
+            </span>
+            <h2 className="text-base font-bold text-stone-800">
+              {state.isPublished ? 'Menün yayında' : 'Menün henüz yayında değil'}
+            </h2>
+          </div>
+          <p className="mt-1 max-w-md text-sm text-stone-600">
+            {state.isPublished
+              ? 'Bağlantıyı veya QR kodunu bilen herkes menünü görebilir.'
+              : 'Şu an menüyü yalnızca sen görebiliyorsun. Yayınladığında bağlantı ve QR herkese açılır.'}
+          </p>
+          {state.publishedAt && (
+            <p className="mt-1 text-xs text-stone-500">
+              İlk yayın: {new Date(state.publishedAt).toLocaleDateString('tr-TR')}
+            </p>
+          )}
+        </div>
+
+        <button
+          onClick={() => (state.isPublished ? onToggle(false) : confirmAndPublish())}
+          disabled={busy}
+          className={`rounded-xl px-5 py-2.5 font-semibold shadow transition disabled:opacity-50 ${
+            state.isPublished
+              ? 'border border-stone-300 bg-white text-stone-700 hover:bg-stone-50'
+              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          }`}
+        >
+          {busy ? '…' : state.isPublished ? 'Yayından kaldır' : 'Yayınla'}
+        </button>
+      </div>
+
+      {!state.isPublished && state.pendingCount > 0 && (
+        <p className="mt-3 rounded-lg border border-amber-300 bg-white/70 px-3 py-2 text-sm text-amber-800">
+          {state.pendingCount}/{state.itemCount} ürünün alerjen onayı bekliyor. Onaylanmayan ürünlerde
+          misafir alerjen bilgisi göremez.{' '}
+          <a href="/studyo" className="font-semibold underline">
+            Uyum ekranına git
+          </a>
+        </p>
+      )}
+
+      {state.isPublished && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600">
+            {liveUrl}
+          </code>
+          <button
+            onClick={copy}
+            className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+          >
+            {copied ? '✓ Kopyalandı' : 'Kopyala'}
+          </button>
+          <a
+            href="/studyo/qr"
+            className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+          >
+            QR kodu al
+          </a>
+        </div>
+      )}
+    </section>
   );
 }
 
