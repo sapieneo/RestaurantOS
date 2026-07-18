@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import type { Metadata } from 'next';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { recordEvent } from '@/lib/analytics';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +25,7 @@ export const metadata: Metadata = {
 
 type QrRow = {
   id: string;
+  org_id: string;
   is_active: boolean;
   label: string | null;
   venue_id: string;
@@ -40,7 +43,7 @@ export default async function QrRedirectPage({ params }: { params: { code: strin
   const admin = createAdminClient();
   const { data } = await admin
     .from('qr_codes')
-    .select('id, is_active, label, venue_id, venues(slug, name, is_published)')
+    .select('id, org_id, is_active, label, venue_id, venues(slug, name, is_published)')
     .eq('code', code)
     .maybeSingle();
   const qr = data as QrRow | null;
@@ -81,6 +84,17 @@ export default async function QrRedirectPage({ params }: { params: { code: strin
       );
     }
   }
+
+  // 'scan' olayı: QR gerçekten okutuldu. redirect() throw ettiği için
+  // yönlendirmeden ÖNCE yazılır. qr_code_id sayesinde hangi masanın/afişin
+  // ne kadar tarandığı ileride ayrıştırılabilir.
+  await recordEvent({
+    orgId: qr.org_id,
+    venueId: qr.venue_id,
+    qrCodeId: qr.id,
+    eventType: 'scan',
+    headers: headers(),
+  });
 
   redirect(`/m/${qr.venues.slug}`);
 }

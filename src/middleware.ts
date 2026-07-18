@@ -6,7 +6,19 @@ import { NextResponse, type NextRequest } from 'next/server';
  * oturum çerezlerini her istekte yeniler; süresi dolan token yüzünden
  * studyo akışının yarıda kesilmesini engeller.
  */
+/** Misafir trafiğinin yoğun olduğu genel yollar. */
+const GUEST_PATH = /^\/(m|q)\//;
+
 export async function middleware(request: NextRequest) {
+  // Misafir yollarında OTURUM ÇEREZİ YOKSA auth'a hiç dokunma: her QR
+  // okutmasında gereksiz bir Supabase getUser() çağrısı yapmayalım.
+  // Çerezi olan (yani önizleme yapan işletme sahibi) için akış değişmez —
+  // token tazelemesi eskisi gibi çalışır.
+  if (GUEST_PATH.test(request.nextUrl.pathname)) {
+    const hasSession = request.cookies.getAll().some((c) => c.name.startsWith('sb-'));
+    if (!hasSession) return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -37,6 +49,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Statik varlıklar hariç her istekte çalışır (misafir menü M3'te ayrılacak)
+  // Statik varlıklar hariç her istekte çalışır; misafir yolları yukarıda
+  // çerez kontrolüyle erken çıkar (B3).
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

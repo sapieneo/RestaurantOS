@@ -43,12 +43,32 @@ export type GuestVenue = {
 export function GuestMenu({
   venue,
   categories,
+  venueId,
 }: {
   venue: GuestVenue;
   categories: GuestCategory[];
+  venueId: string;
 }) {
   const [active, setActive] = useState(categories[0]?.id ?? '');
   const [selected, setSelected] = useState<GuestItem | null>(null);
+  const seenItems = useRef<Set<string>>(new Set());
+
+  /**
+   * 'item_view' olayı (B3). Aynı oturumda aynı ürün bir kez sayılır — modal
+   * açılıp kapanınca sayaç şişmesin. Yayınlanmamış önizlemede hiç yazılmaz.
+   * Analitik sessizdir: hata olursa misafir hiçbir şey görmez.
+   */
+  function openItem(item: GuestItem) {
+    setSelected(item);
+    if (!venue.isPublished || seenItems.current.has(item.id)) return;
+    seenItems.current.add(item.id);
+    void fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ venueId, itemId: item.id, eventType: 'item_view' }),
+      keepalive: true,
+    }).catch(() => {});
+  }
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const navRef = useRef<HTMLDivElement | null>(null);
@@ -195,7 +215,7 @@ export function GuestMenu({
               {c.items.map((it) => (
                 <li key={it.id}>
                   <button
-                    onClick={() => setSelected(it)}
+                    onClick={() => openItem(it)}
                     className="flex w-full items-start gap-3 py-3 text-left transition active:bg-stone-50"
                   >
                     {it.imageUrl && (

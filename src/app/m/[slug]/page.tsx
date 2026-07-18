@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
+import { headers } from 'next/headers';
 import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
+import { recordEvent } from '@/lib/analytics';
 import { CODE_BY_ID } from '@/lib/allergens';
 import { DIETARY_CODE_BY_ID } from '@/lib/dietary';
 import { GuestMenu, type GuestCategory, type GuestVenue } from './guest-menu';
@@ -43,7 +45,7 @@ export default async function GuestMenuPage({ params }: { params: { slug: string
 
   const { data: venue } = await supabase
     .from('venues')
-    .select('id, name, description, logo_url, cover_url, currency_code, is_published, address, phone, whatsapp, instagram, google_maps_url, wifi_ssid, opening_hours')
+    .select('id, org_id, name, description, logo_url, cover_url, currency_code, is_published, address, phone, whatsapp, instagram, google_maps_url, wifi_ssid, opening_hours')
     .eq('slug', params.slug)
     .maybeSingle();
 
@@ -136,5 +138,16 @@ export default async function GuestMenuPage({ params }: { params: { slug: string
     isPublished: Boolean(venue.is_published),
   };
 
-  return <GuestMenu venue={guestVenue} categories={guestCategories} />;
+  // 'menu_view' — yalnız YAYINDAKİ menüde sayılır. Sahibin önizlemesi
+  // sayaçları şişirmemeli.
+  if (venue.is_published) {
+    await recordEvent({
+      orgId: venue.org_id,
+      venueId: venue.id,
+      eventType: 'menu_view',
+      headers: headers(),
+    });
+  }
+
+  return <GuestMenu venue={guestVenue} categories={guestCategories} venueId={venue.id} />;
 }
