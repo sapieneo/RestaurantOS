@@ -47,6 +47,15 @@ Kabul: taslak editöründe para birimi/kalori/içindekiler/rozet düzenlenip ona
 
 ---
 
+## ⚠️ DEPLOY ANINDA YAPILACAKLAR (ertelendi — Faz B bitince tek seferde)
+Karar: uygulama şu an yalnız yerelde çalışıyor (hosting/alan adı yok). Deploy, Faz B tümüyle bitince tek seferde yapılacak. O an aşağıdakiler tamamlanmalı:
+- **Hosting:** Vercel'e bağla (GitHub `sapieneo/RestaurantOS` → import). Env değişkenlerini taşı: Supabase URL/anon/service_role, `ANTHROPIC_API_KEY`, `RUNWARE_API_KEY`, `NEXT_PUBLIC_SITE_URL` (canlı adres).
+- **`NEXT_PUBLIC_SITE_URL`:** prod'da gerçek alan adı (ör. `https://menu.isletmem.com`, sonda `/` yok). Magic link `emailRedirectTo` ve QR gömülü adresi bundan türüyor.
+- **Supabase → Authentication → URL Configuration:** Site URL'i canlı adrese çevir; Redirect URLs'e `https://<alan-adı>/auth/callback` ekle (localhost satırını silme, ikisi birlikte dursun).
+- **Supabase → Custom SMTP:** varsayılan e-posta gönderimi sıkı rate-limitli ("email rate limit exceeded" testte görüldü). Gerçek kullanıcı almadan önce kendi SMTP'ni (SendGrid/Resend/SES) tanımla.
+- **0009 migration:** `0009_org_contact_phone.sql` prod DB'ye uygulandı mı teyit et (yerelde de bekliyorsa uygula).
+- **Google girişi (opsiyonel):** istenirse Google Cloud OAuth client + Supabase Google provider kurulumu; sonra `linkIdentity` butonu eklenecek.
+
 ## Açık teknik notlar
 - **RLS/oturum doğrulaması:** Anonim kullanıcının `organizations` INSERT'i user-client + RLS ile 42501 verdi; bootstrap provizyonu güvenli şekilde service-role + `created_by = user.id` ile yapılıyor (route kullanıcıyı doğruluyor). User-client RLS **okuma** çalışıyor (taslak görüntülendi). M2 confirm (user RPC) ve approve (user-client yazma) canlıda test edilecek; sorun çıkarsa kritik yazımlar SECURITY DEFINER RPC'ye taşınır.
 - **Görsel üretimi maliyeti** (A7/A8) Faz C fiyatlandırmasına bağlanacak.
