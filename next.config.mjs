@@ -11,6 +11,8 @@ const nextConfig = {
     // bundle'ına dahil edilmeleri için izlenecek dosyalara eklenir.
     outputFileTracingIncludes: {
       '/api/compliance/report': ['./src/server/fonts/**'],
+      // QR kartı PDF'i (B2) de aynı TTF fontları çalışma anında okur.
+      '/api/qr/[code]': ['./src/server/fonts/**'],
     },
   },
 };

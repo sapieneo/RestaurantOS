@@ -1,0 +1,16 @@
+# Netlify yapılandırması — RestaurantOS (Next.js 14)
+# Netlify, Next.js'i otomatik algılar ve resmi runtime'ı (@netlify/plugin-nextjs)
+# uygular. Bu dosya build komutunu ve Node sürümünü açıkça sabitler.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # Build'in dev bağımlılıklarını (typescript, tailwind) kurması için.
+  # Proje NODE_ENV=production ile bunları atlarsa tsc/postcss bulunamaz.
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--include=dev"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
