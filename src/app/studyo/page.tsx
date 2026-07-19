@@ -22,6 +22,7 @@ export default function StudyoPage() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>({ name: 'hazirlaniyor' });
   const [dragOver, setDragOver] = useState(false);
+  const [isAnon, setIsAnon] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const bootstrapped = useRef(false);
 
@@ -41,6 +42,10 @@ export default function StudyoPage() {
         const res = await fetch('/api/bootstrap', { method: 'POST' });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? 'Hazırlık başarısız.');
+        // Anonim mi? Kalıcılaştırma çağrısı için uyarı bandı göster.
+        const { data: userData } = await supabase.auth.getUser();
+        const u = userData.user as { is_anonymous?: boolean; email?: string } | null;
+        setIsAnon(Boolean(u && (u.is_anonymous ?? !u.email)));
         setPhase({ name: 'hazir', orgId: body.orgId, venueId: body.venueId });
       } catch (err) {
         setPhase({
@@ -120,6 +125,20 @@ export default function StudyoPage() {
           Mevcut menünün fotoğrafını veya PDF&apos;ini yükle; gerisini yapay zeka halletsin.
         </p>
       </div>
+
+      {isAnon && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span>
+            Hesabın geçici — menün yalnız bu tarayıcıya bağlı. E-postanı ekle ki kaybetmeyesin.
+          </span>
+          <a
+            href="/studyo/hesap"
+            className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 font-semibold text-white transition hover:bg-amber-700"
+          >
+            Hesabını güvene al
+          </a>
+        </div>
+      )}
 
       <div
         role="button"
