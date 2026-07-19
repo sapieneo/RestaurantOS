@@ -20,26 +20,28 @@ export async function GET(request: NextRequest) {
   const errorDescription = url.searchParams.get('error_description');
   const next = url.searchParams.get('next') || '/studyo/hesap';
 
+  // KRİTİK: yönlendirme tabanı NEXT_PUBLIC_SITE_URL olmalı, request.url DEĞİL.
+  // Netlify Function içinde host, deploy permalink'i (main--site.netlify.app)
+  // olabilir; oraya yönlendirirsek oturum çerezi kanonik alan adına yazılmaz
+  // ve kullanıcı giriş yapmış görünmez. Env yoksa istek origin'ine düşeriz.
+  const origin = (process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, '') || url.origin);
+
   if (errorDescription) {
-    return NextResponse.redirect(
-      new URL(`/studyo/hesap?auth_error=${encodeURIComponent(errorDescription)}`, url.origin)
-    );
+    return NextResponse.redirect(`${origin}/studyo/hesap?auth_error=${encodeURIComponent(errorDescription)}`);
   }
   if (!code) {
-    return NextResponse.redirect(
-      new URL('/studyo/hesap?auth_error=Ge%C3%A7ersiz%20ba%C4%9Flant%C4%B1', url.origin)
-    );
+    return NextResponse.redirect(`${origin}/studyo/hesap?auth_error=${encodeURIComponent('Geçersiz bağlantı')}`);
   }
 
   const supabase = createClient();
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return NextResponse.redirect(
-      new URL(`/studyo/hesap?auth_error=${encodeURIComponent(errorMessage(error.message))}`, url.origin)
+      `${origin}/studyo/hesap?auth_error=${encodeURIComponent(errorMessage(error.message))}`
     );
   }
 
-  return NextResponse.redirect(new URL(`${next}?auth_ok=1`, url.origin));
+  return NextResponse.redirect(`${origin}${next}?auth_ok=1`);
 }
 
 function errorMessage(raw: string): string {

@@ -63,9 +63,27 @@ export function deviceType(h: Headers): string {
   return 'desktop';
 }
 
-/** Edge geo başlığı (Vercel/Cloudflare). Yoksa null. */
+/**
+ * Edge geo başlığı. Barındırıcıya göre değişir:
+ * - Netlify: `x-nf-geo` (base64 JSON, içinde country.code)
+ * - Vercel:  `x-vercel-ip-country`
+ * - Cloudflare: `cf-ipcountry`
+ * Yoksa null.
+ */
 export function countryOf(h: Headers): string | null {
-  return h.get('x-vercel-ip-country') ?? h.get('cf-ipcountry') ?? null;
+  const direct = h.get('x-vercel-ip-country') ?? h.get('cf-ipcountry');
+  if (direct) return direct;
+  const nf = h.get('x-nf-geo');
+  if (nf) {
+    try {
+      const geo = JSON.parse(Buffer.from(nf, 'base64').toString('utf8'));
+      const code = geo?.country?.code;
+      if (typeof code === 'string' && code) return code;
+    } catch {
+      /* çözülemezse ülke null kalır */
+    }
+  }
+  return null;
 }
 
 const BOT_RE = /bot|crawler|spider|crawling|facebookexternalhit|slackbot|whatsapp|telegram|preview|lighthouse|headless/i;
