@@ -355,7 +355,7 @@ function PublishCard({
         <p className="mt-3 rounded-lg border border-amber-300 bg-white/70 px-3 py-2 text-sm text-amber-800">
           {state.pendingCount}/{state.itemCount} ürünün alerjen onayı bekliyor. Onaylanmayan ürünlerde
           misafir alerjen bilgisi göremez.{' '}
-          <a href="/studyo" className="font-semibold underline">
+          <a href="/studyo/uyum" className="font-semibold underline">
             Uyum ekranına git
           </a>
         </p>

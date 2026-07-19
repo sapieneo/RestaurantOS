@@ -69,7 +69,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
         <Banner
           tone="stone"
           text={`${data.pendingCount}/${data.itemCount} ürünün alerjen onayı bekliyor. Onaylanmayan ürünlerde misafir alerjen bilgisi göremez.`}
-          cta={{ href: '/studyo', label: 'Uyum ekranı' }}
+          cta={{ href: '/studyo/uyum', label: 'Uyum ekranı' }}
         />
       )}
 
@@ -128,11 +128,13 @@ export function Dashboard({ data }: { data: DashboardData }) {
       </section>
 
       {/* Hızlı eylemler */}
-      <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <QuickLink href="/studyo" icon="📸" label="Menü / yükle" />
+        <QuickLink href="/studyo/uyum" icon="✅" label="Alerjen / uyum" />
         <QuickLink href="/studyo/gorseller" icon="🎨" label="Görseller" />
         <QuickLink href="/studyo/qr" icon="🔳" label="QR kodları" />
         <QuickLink href="/studyo/ayarlar" icon="⚙️" label="Ayarlar" />
+        <QuickLink href="/studyo/hesap" icon="👤" label="Hesap" />
       </section>
     </main>
   );
