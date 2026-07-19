@@ -23,6 +23,7 @@ export default function StudyoPage() {
   const [phase, setPhase] = useState<Phase>({ name: 'hazirlaniyor' });
   const [dragOver, setDragOver] = useState(false);
   const [isAnon, setIsAnon] = useState(false);
+  const [hasMenu, setHasMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const bootstrapped = useRef(false);
 
@@ -46,6 +47,7 @@ export default function StudyoPage() {
         const { data: userData } = await supabase.auth.getUser();
         const u = userData.user as { is_anonymous?: boolean; email?: string } | null;
         setIsAnon(Boolean(u && (u.is_anonymous ?? !u.email)));
+        setHasMenu(Boolean(body.hasMenu));
         setPhase({ name: 'hazir', orgId: body.orgId, venueId: body.venueId });
       } catch (err) {
         setPhase({
@@ -125,6 +127,18 @@ export default function StudyoPage() {
           Mevcut menünün fotoğrafını veya PDF&apos;ini yükle; gerisini yapay zeka halletsin.
         </p>
       </div>
+
+      {hasMenu && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+          <span>Menün hazır. Yayın durumu, QR ve ziyaretçi istatistiklerini panondan yönet.</span>
+          <a
+            href="/studyo/pano"
+            className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 font-semibold text-white transition hover:bg-brand-700"
+          >
+            Panoya git
+          </a>
+        </div>
+      )}
 
       {isAnon && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

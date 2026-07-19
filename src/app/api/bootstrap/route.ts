@@ -59,7 +59,20 @@ export async function POST() {
     .limit(1)
     .maybeSingle();
   if (venue) {
-    return NextResponse.json({ orgId, venueId: venue.id, slug: venue.slug });
+    // Bu venue'da hiç kategori var mı? Varsa dönen kullanıcıdır → studyo
+    // girişi panoya bağ gösterir. (menus → categories zinciri, RLS altında.)
+    const { data: someCat } = await admin
+      .from('categories')
+      .select('id, menus!inner(venue_id)')
+      .eq('menus.venue_id', venue.id)
+      .limit(1)
+      .maybeSingle();
+    return NextResponse.json({
+      orgId,
+      venueId: venue.id,
+      slug: venue.slug,
+      hasMenu: Boolean(someCat),
+    });
   }
 
   for (let attempt = 0; attempt < 3; attempt++) {
